@@ -1,0 +1,13 @@
+[MASTER]
+# Other pylint configurations...
+
+[FORMAT]
+# Set maximum line length to 120 characters
+max-line-length=120
+
+[MESSAGES CONTROL]
+disable=
+    logging-fstring-interpolation,  # W1203: Disable warning about f-strings in logging
+    logging-format-interpolation,   # W1202: Disable warning about .format() in logging
+    consider-using-f-string,        # C0209: Disable warning about using % formatting instead of f-strings
+    # You can add other warnings to disable here
