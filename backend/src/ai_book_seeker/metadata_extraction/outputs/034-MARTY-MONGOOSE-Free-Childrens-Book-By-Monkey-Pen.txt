@@ -1,0 +1,77 @@
+{
+  "normalized_metadata": {
+    "title": "MARTY MONGOOSE",
+    "author": "Unknown (Monkey Pen)",
+    "description": "The story revolves around Marty, a young mongoose living in a forest with his kind-hearted mother, depicting his adventures and encounters while she goes out to beg for food daily.",
+    "age_range": "Children",
+    "purpose": "Entertainment and moral lessons",
+    "genre": "Children's Fiction",
+    "tags": [
+      "Marty Mongoose",
+      "Forest Adventures",
+      "Kindness",
+      "Family",
+      "Animals"
+    ],
+    "publication_details": {
+      "publisher": "Monkey Pen",
+      "publication_date": "Unknown",
+      "edition": null,
+      "isbn": "No ISBN available",
+      "pages": null
+    },
+    "language": "English",
+    "target_audience": {
+      "age_range": "Children",
+      "from_age": 4,
+      "to_age": 8,
+      "grade_level": "Preschool to Grade 2",
+      "special_interests": [
+        "Animal Stories",
+        "Adventure Tales"
+      ]
+    }
+  },
+  "validation_status": {
+    "is_valid": true,
+    "missing_fields": [
+      "edition",
+      "pages"
+    ],
+    "valid_fields": [
+      "title",
+      "author",
+      "description",
+      "age_range",
+      "purpose",
+      "genre",
+      "tags",
+      "publication_details",
+      "language",
+      "target_audience"
+    ]
+  },
+  "error_reports": {
+    "errors": {},
+    "warnings": {}
+  },
+  "confidence_scores": {
+    "overall": 0.95,
+    "fields": {
+      "title": 0.95,
+      "author": 0.95,
+      "description": 0.95,
+      "age_range": 0.9,
+      "purpose": 0.85,
+      "genre": 0.9,
+      "tags": 0.9,
+      "publication_details": 0.85,
+      "language": 0.95,
+      "target_audience": 0.95
+    }
+  },
+  "quality_assessment": {
+    "summary": "The metadata extraction process was highly successful, capturing essential details about the book 'MARTY MONGOOSE' accurately. Some minor missing publication details need verification."
+  },
+  "id": 55
+}

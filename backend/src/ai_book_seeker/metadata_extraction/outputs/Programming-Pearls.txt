@@ -1,0 +1,73 @@
+{
+  "normalized_metadata": {
+    "title": "Programming Pearls",
+    "author": "Jon Bentley",
+    "description": "The book 'Programming Pearls' by Jon Bentley provides insights into practical programming challenges and solutions through various chapters focusing on algorithms, data structures, program correctness, and performance tuning.",
+    "age_range": "",
+    "purpose": "To share effective programming techniques and problem-solving strategies",
+    "genre": "Technical programming and software development",
+    "tags": [
+      "algorithms",
+      "data structures",
+      "programming techniques",
+      "problem-solving",
+      "software development"
+    ],
+    "publication_details": {
+      "publisher": "Addison-Wesley, Inc.",
+      "publication_date": "Second Edition",
+      "edition": "2000",
+      "isbn": "978-0201657883",
+      "pages": 256
+    },
+    "language": "English",
+    "target_audience": {
+      "age_range": "Adults",
+      "from_age": 18,
+      "to_age": null,
+      "grade_level": "College level and above",
+      "special_interests": [
+        "Software developers",
+        "Computer science enthusiasts"
+      ]
+    }
+  },
+  "validation_status": {
+    "is_valid": true,
+    "missing_fields": [],
+    "valid_fields": [
+      "title",
+      "author",
+      "description",
+      "purpose",
+      "genre",
+      "tags",
+      "publication_details",
+      "language",
+      "target_audience"
+    ]
+  },
+  "error_reports": {
+    "errors": {},
+    "warnings": {}
+  },
+  "confidence_scores": {
+    "overall": 0.95,
+    "fields": {
+      "title": 0.98,
+      "author": 0.99,
+      "description": 0.95,
+      "age_range": 0.9,
+      "purpose": 0.95,
+      "genre": 0.92,
+      "tags": 0.94,
+      "publication_details": 0.97,
+      "language": 0.98,
+      "target_audience": 0.96
+    }
+  },
+  "quality_assessment": {
+    "summary": "The metadata extraction process for 'Programming Pearls' by Jon Bentley was highly accurate, providing comprehensive details about the book, including its content, publication information, language, and target audience. Confidence scores indicate a high level of certainty in the extracted metadata."
+  },
+  "id": 54
+}

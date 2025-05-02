@@ -6,7 +6,6 @@ AI Book Seeker's chatbot. These are specifically formatted with Pydantic models
 to match OpenAI's function calling schema.
 """
 
-import os
 from typing import List, Optional
 
 from dotenv import load_dotenv
@@ -15,9 +14,10 @@ from openai.types.chat import ChatCompletionToolParam
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from explainer import BookPreferences
-from logger import get_logger
-from query import search_books as db_search_books
+from ai_book_seeker.core.config import OPENAI_API_KEY, OPENAI_MODEL
+from ai_book_seeker.core.logging import get_logger
+from ai_book_seeker.services.explainer import BookPreferences
+from ai_book_seeker.services.query import search_books as db_search_books
 
 # Set up logging
 logger = get_logger("tools")
@@ -26,10 +26,9 @@ logger = get_logger("tools")
 load_dotenv()
 
 # OpenAI client
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 # Get model from environment
-OPENAI_MODEL = os.getenv("OPENAI_MODEL")
 if not OPENAI_MODEL:
     logger.error("OPENAI_MODEL environment variable is required")
     raise ValueError("OPENAI_MODEL environment variable is required")

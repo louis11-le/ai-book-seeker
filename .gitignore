@@ -109,13 +109,14 @@ frontend/.env.production
 .idea/
 *.swp
 *.swo
+settings.json
 
 # Node modules
 node_modules/
 
 # ChromaDB data
-backend/chromadb_data/
+**/chromadb_data/
 
 # Next.js build output
 frontend/.next/
-frontend/out/ 
+frontend/out/

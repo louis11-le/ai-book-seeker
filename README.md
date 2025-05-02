@@ -1,6 +1,6 @@
-# 📚 AI Book Seeker
+# AI Book Seeker
 
-An AI-powered chatbot that helps users discover suitable books based on age, interests, and budget through natural conversation.
+An AI-powered book recommendation system that helps users find books based on their preferences and interests.
 
 ![AI Book Seeker Interface](/images/UI-1.png)
 
@@ -11,6 +11,7 @@ An AI-powered chatbot that helps users discover suitable books based on age, int
 - Parents struggle to find age-appropriate books for children
 - Hard to discover titles without knowing them in advance
 - Difficult to match books to specific interests, reading levels, and budgets
+- Manual metadata extraction from PDF books is time-consuming and error-prone
 
 ### Solution:
 
@@ -18,6 +19,7 @@ An AI-powered chatbot that helps users discover suitable books based on age, int
 - Automatically extracts key parameters (age, purpose, budget) from user input
 - Provides personalized recommendations with tailored explanations
 - Maintains context across conversation for follow-up questions
+- AI-powered metadata extraction from PDF books with high accuracy
 
 **Example Interaction:**
 
@@ -59,26 +61,60 @@ Here's a visual overview of the AI Book Seeker interface:
 | Backend   | FastAPI (Python)                |
 | AI        | OpenAI GPT-4 with tool-calling  |
 | Data      | MySQL + ChromaDB (vector store) |
+| PDF metadata extraction | CrewAI + PyPDF2 + OpenAI model |
 
 ## 🚀 Installation & Setup
 
-```bash
-# Clone repository
-git clone https://github.com/yourusername/ai-book-seeker.git
-cd ai-book-seeker
+### Backend Setup
 
-# Frontend
-cd frontend
-npm install
-npm run dev
+1. Create a virtual environment:
+   ```bash
+   cd backend
+   python -m venv venv
+   source venv/bin/activate  # On Windows: venv\Scripts\activate
+   ```
 
-# Backend
-cd ../backend
-pip install -r requirements.txt
-cp .env.example .env
-# Edit .env with your API keys and database credentials
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
+2. Install the package in development mode:
+   ```bash
+   pip install -e ".[dev]"
+   ```
+
+3. Set up environment variables:
+   Create a `.env` file in the backend directory with:
+   ```
+   OPENAI_API_KEY=your_openai_api_key
+   OPENAI_MODEL=gpt-4
+   DATABASE_URL=mysql://user:password@localhost/books
+   REDIS_HOST=localhost
+   REDIS_PORT=6379
+   REDIS_DB=0
+   REDIS_PASSWORD=
+   VECTOR_DB_PATH=./chromadb_data
+   ```
+
+4. Run database migrations:
+   ```bash
+   cd backend
+   alembic upgrade head
+   ```
+
+5. Start the API server:
+   ```bash
+   python -m ai_book_seeker.main
+   ```
+
+### Frontend Setup
+
+1. Install dependencies:
+   ```bash
+   cd frontend
+   npm install
+   ```
+
+2. Start the development server:
+   ```bash
+   npm run dev
+   ```
 
 ## 🤖 Key AI Features
 
@@ -90,6 +126,7 @@ uvicorn main:app --reload --host 0.0.0.0 --port 8000
 | Intelligent Function Selection | Automatically selects appropriate search functions based on user needs          | Tool calling via OpenAI function API with custom tools               |
 | Semantic Search                | Finds relevant books beyond exact keyword matching, improving results           | RAG (Retrieval Augmented Generation) with ChromaDB vector embeddings |
 | Conversational Memory          | Remembers previous interactions for natural, ongoing conversations              | Context-aware memory system with Redis and automatic summarization   |
+| PDF Metadata Extraction        | Automatically extracts structured metadata from PDF books with high accuracy    | AI agent crew with specialized roles for content analysis            |
 
 ## 🔄 System Flow
 
@@ -122,6 +159,46 @@ flowchart TD
     NextJS -->|Display Results| User
 ```
 
+## 📚 Book Metadata Extraction Flow
+
+```mermaid
+flowchart TD
+    PDF[PDF Book File] -->|Input| Reader[PDF Reader Agent]
+    Reader -->|Extracted Text| Structure[Structure Analyzer Agent]
+    Structure -->|Structure Type| Summarizer[Metadata Summarizer Agent]
+    Summarizer -->|Raw Metadata| Validator[Quality Controller Agent]
+    Validator -->|Validated Metadata| DB[(MySQL Database)]
+
+    subgraph PDF Reader Agent
+        Reader -->|Try PyPDF2| PyPDF2[PyPDF2]
+        PyPDF2 -->|Success| Text[Clean Text]
+        PyPDF2 -->|Failure| OCR[Tesseract OCR]
+        OCR -->|Fallback| Text
+    end
+
+    subgraph Structure Analyzer Agent
+        Structure -->|Analyze| Chapters[Chapters]
+        Structure -->|Analyze| Sections[Sections]
+        Structure -->|Analyze| Flat[Flat Text]
+    end
+
+    subgraph Metadata Summarizer Agent
+        Summarizer -->|Extract| Title[Title]
+        Summarizer -->|Extract| Author[Author]
+        Summarizer -->|Extract| Description[Description]
+        Summarizer -->|Extract| AgeRange[Age Range]
+        Summarizer -->|Extract| Purpose[Purpose]
+        Summarizer -->|Extract| Genre[Genre]
+        Summarizer -->|Extract| Tags[Tags]
+    end
+
+    subgraph Quality Controller Agent
+        Validator -->|Validate| Fields[Required Fields]
+        Validator -->|Validate| Types[Data Types]
+        Validator -->|Validate| Normalize[Normalize Values]
+    end
+```
+
 ## 📊 Data Structure
 
 **MySQL Schema:** Books table with title, author, description, age_range, purpose, price, etc.
@@ -149,15 +226,55 @@ flowchart TD
 
 ## 📁 Project Structure
 
-Key files:
+The project follows a modern Python package structure with clear separation of concerns:
 
-- `backend/chat_parser.py`: Chat processing, tool calling
-- `backend/query.py`: Database queries
-- `backend/tools.py`: Tool definitions
-- `backend/vectordb.py`: Vector embeddings
-- `backend/explainer.py`: Book recommendation explanations
-- `backend/prompts/system/`: System prompt for AI guidance
-- `backend/prompts/explainer/`: Explanation prompt for book recommendations
+```
+.
+├── backend/               # Backend Python code
+│   ├── src/              # Source code
+│   │   └── ai_book_seeker/  # Main package
+│   │       ├── api/         # API endpoints and routes
+│   │       │   ├── __init__.py
+│   │       │   └── routes.py
+│   │       ├── core/        # Core functionality
+│   │       │   ├── __init__.py
+│   │       │   ├── config.py
+│   │       │   └── logging.py
+│   │       ├── db/          # Database models and connections
+│   │       │   ├── __init__.py
+│   │       │   ├── connection.py
+│   │       │   ├── database.py
+│   │       │   └── models.py
+│   │       ├── metadata_extraction/ # Book metadata extraction
+│   │       ├── prompts/     # Prompt templates
+│   │       ├── services/    # Business logic
+│   │       │   ├── __init__.py
+│   │       │   ├── chat_parser.py
+│   │       │   ├── explainer.py
+│   │       │   ├── memory.py
+│   │       │   ├── query.py
+│   │       │   ├── tools.py
+│   │       │   └── vectordb.py
+│   │       ├── utils/       # Utility functions
+│   │       ├── __init__.py  # Package initialization
+│   │       └── main.py      # Application entry point
+│   ├── docs/             # Documentation
+│   │   ├── features/      # Feature specifications
+│   │   └── book_metadata_extraction.md  # Technical documentation
+│   ├── tests/            # Test suite
+│   │   ├── integration/  # Integration tests
+│   │   └── unit/         # Unit tests
+│   ├── setup.py          # Package installation
+│   ├── pyproject.toml    # Project configuration
+│   ├── requirements.txt  # Production dependencies
+│   └── requirements-dev.txt  # Development dependencies
+├── frontend/            # Frontend Next.js code
+│   ├── src/            # Source code
+│   ├── public/         # Static assets
+│   └── package.json    # Dependencies
+└── README.md           # Project overview
+```
+
 
 ## 📋 Additional Info
 
@@ -177,3 +294,7 @@ Contributions are welcome! Please follow these steps:
 5. Open a Pull Request
 
 Please ensure your code follows the existing style and passes all tests.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

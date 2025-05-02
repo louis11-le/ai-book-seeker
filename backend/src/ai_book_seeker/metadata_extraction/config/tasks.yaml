@@ -1,0 +1,50 @@
+pdf_reader_task:
+  description: >
+    Extract clean, readable text from the first 3 pages of the PDF file at {pdf_path}.
+    Focus on:
+    - Preserving formatting and structure
+    - Handling special characters and layouts
+    - Maintaining chapter headings and page numbers
+    - Ensuring text completeness and quality
+    Use PyPDF2 first, then fall back to OCR if needed.
+  expected_output: >
+    A clean text string containing the extracted content with:
+    - Preserved formatting and structure
+    - Clear chapter/section markers
+    - Page numbers and headers
+    - Special characters properly handled
+  async_execution: false
+  has_tools: true
+
+
+structure_analyzer_task:
+  description: >
+    Analyze the extracted text to determine the book's organizational structure.
+    Consider:
+    - Chapter and section hierarchies
+    - Header and footer patterns
+    - Page number formats
+    - Table of contents structure
+    - Content organization style
+    Provide a detailed analysis of the structure.
+  expected_output: >
+    A structured analysis containing:
+    - Structure type (Chapters, Sections, or Flat)
+    - Hierarchy levels identified
+    - Organization style detected
+    - Special structural elements found
+    - Confidence level in the analysis
+  async_execution: false
+
+
+metadata_summarizer_task:
+  description: "Analyze and summarize the extracted metadata"
+  expected_output: "A structured summary of the document's metadata"
+  async_execution: false
+
+
+
+quality_controller_task:
+  description: "Validate and ensure quality of the extracted metadata"
+  expected_output: "Quality assessment and validation report"
+  async_execution: false

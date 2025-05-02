@@ -94,7 +94,9 @@ export default function Home() {
                                     )}
                                     <div className="mt-2 text-sm">
                                         <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded mr-2">
-                                            Age: {book.age_range}
+                                            Age: {book.from_age && book.to_age 
+                                                ? `${book.from_age}-${book.to_age}` 
+                                                : "All ages"}
                                         </span>
                                         <span className="bg-green-100 text-green-800 px-2 py-1 rounded">
                                             ${book.price.toFixed(2)}

@@ -8,11 +8,11 @@ export interface BookType {
     title: string;
     author: string;
     description: string;
-    age_range: string;
+    from_age: number;
+    to_age: number;
     purpose: string;
     genre: string;
     price: number;
     tags: string[];
-    rating: number;
     explanation?: string;
 }
