@@ -10,13 +10,16 @@ from typing import List
 
 import chromadb
 import numpy as np
+from ai_book_seeker.core.config import (
+    CHROMA_COLLECTION_NAME,
+    CHROMA_PERSIST_DIRECTORY,
+    OPENAI_API_KEY,
+)
+from ai_book_seeker.core.logging import get_logger
+from ai_book_seeker.db.models import Book
 from dotenv import load_dotenv
 from openai import OpenAI
 from sqlalchemy.orm import Session
-
-from ai_book_seeker.core.config import CHROMA_COLLECTION_NAME, CHROMA_PERSIST_DIRECTORY, OPENAI_API_KEY
-from ai_book_seeker.core.logging import get_logger
-from ai_book_seeker.db.models import Book
 
 # Load environment variables
 load_dotenv()

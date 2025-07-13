@@ -5,7 +5,7 @@ This module defines SQLAlchemy ORM models for the application's database tables.
 It includes the Book model which represents entries in the books table.
 """
 
-from typing import Dict, List, Union
+from typing import Any, Dict
 
 from sqlalchemy import Column, Integer, String, Text
 from sqlalchemy.dialects.mysql import DECIMAL
@@ -28,8 +28,9 @@ class Book(Base):
     genre = Column(String(100))
     price = Column(DECIMAL(6, 2), nullable=False)
     tags = Column(Text)
+    quantity = Column(Integer, nullable=False, default=0)
 
-    def to_dict(self) -> Dict[str, Union[int, str, float, List[str]]]:
+    def to_dict(self) -> Dict[str, Any]:
         """
         Convert model instance to dictionary
 
@@ -48,4 +49,5 @@ class Book(Base):
             "genre": getattr(self, "genre", "") or "",
             "price": float(getattr(self, "price", 0)) if getattr(self, "price", None) else 0.0,
             "tags": getattr(self, "tags", "").split(",") if getattr(self, "tags", None) else [],
+            "quantity": getattr(self, "quantity", 0),
         }

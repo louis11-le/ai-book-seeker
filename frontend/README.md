@@ -1,6 +1,6 @@
 # AI Book Seeker Frontend
 
-A modern Next.js application for helping users find the perfect children's books based on age, interests, and budget through a conversational interface.
+A modern Next.js application for helping users find the perfect books based on age, interests, and budget through a conversational interface.
 
 ## 📚 Overview
 
@@ -79,24 +79,37 @@ The frontend communicates with the backend through a REST API:
   ```json
   {
     "session_id": "Unique session identifier",
-    "response": "AI assistant's response",
-    "books": [
-      {
-        "id": 1,
-        "title": "Book Title",
-        "author": "Author Name",
-        "description": "Book description",
-        "age_range": "6-8",
-        "purpose": "learning",
-        "genre": "fiction",
-        "price": 24.99,
-        "tags": ["tag1", "tag2"],
-        "rating": 4.5,
-        "explanation": "Why this book matches the query"
-      }
-    ]
+    "response": {
+      "input": "User's input message",
+      "output": "AI assistant's latest response"
+    }
   }
   ```
+
+> Note: Only the latest assistant message is returned in the response. The client is responsible for managing chat history if needed.
+
+## 🌐 Streaming API Integration
+
+The backend supports real-time streaming of chat responses:
+
+- **Endpoint**: `/api/chat/stream`
+- **Method**: POST
+- **Request Body**:
+  ```json
+  {
+    "message": "User's input message",
+    "session_id": "Optional session ID for continuing conversations"
+  }
+  ```
+- **Streaming Response**:
+  - The response is a stream of newline-delimited JSON objects, each with an `output` field containing the latest chunk of the assistant's reply.
+  - Example stream:
+    ```json
+    {"output": "Hello"}
+    {"output": "Hello, how"}
+    {"output": "Hello, how can I help you?"}
+    ```
+- **Usage**: Use the Fetch API with a ReadableStream to process each chunk as it arrives and update the UI in real time.
 
 ## 📝 License
 

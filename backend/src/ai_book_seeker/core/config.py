@@ -40,3 +40,9 @@ CHROMA_COLLECTION_NAME = os.getenv("CHROMA_COLLECTION_NAME", "books")
 
 # Logging settings
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+
+# Mapping of interface types to enabled tool names
+INTERFACE_TOOL_MAP = {
+    "chat": ["search_faq", "get_book_recommendation"],
+    "voice": ["get_book_recommendation"],  # No FAQ tool for voice (handled by ElevenLabs)
+}

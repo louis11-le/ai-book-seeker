@@ -1,0 +1,1 @@
+Extract the book title or unique identifier mentioned by the user. This value will be used to look up detailed information about the requested book, such as price, availability, and description.

@@ -5,7 +5,7 @@ const inter = Inter({ subsets: ['latin'] })
 
 export const metadata = {
     title: 'AI Book Seeker',
-    description: 'Find the perfect children\'s books based on age, interests, and budget',
+    description: 'Find the perfect books based on age, interests, and budget',
 }
 
 export default function RootLayout({
@@ -25,7 +25,7 @@ export default function RootLayout({
                     {children}
                 </main>
                 <footer className="p-4 text-center text-gray-600 text-sm">
-                    <p>© 2024 AI Book Seeker - Find the perfect books for children</p>
+                    <p>© 2025 AI Book Seeker - Find the perfect books</p>
                 </footer>
             </body>
         </html>

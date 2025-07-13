@@ -4,14 +4,14 @@ Book query logic for AI Book Seeker
 This module handles querying the database for books based on various criteria.
 """
 
-from typing import Any, Dict, List, Optional
-
-from sqlalchemy.orm import Session
+from typing import List, Optional
 
 from ai_book_seeker.core.logging import get_logger
 from ai_book_seeker.db.models import Book
+from ai_book_seeker.features.get_book_recommendation.schema import BookRecommendation
 from ai_book_seeker.services.explainer import BookPreferences, generate_explanations
 from ai_book_seeker.services.vectordb import get_book_vector_matches, search_by_vector
+from sqlalchemy.orm import Session
 
 # Set up logging
 logger = get_logger("query")
@@ -24,7 +24,7 @@ def search_books_by_criteria(
     budget: Optional[float] = None,
     genre: Optional[str] = None,
     query_text: Optional[str] = None,
-) -> List[Dict[str, Any]]:
+) -> List[BookRecommendation]:
     """
     Search for books in the database based on criteria.
 
@@ -37,13 +37,97 @@ def search_books_by_criteria(
         query_text: Optional semantic search query text
 
     Returns:
-        List of book dictionaries matching the criteria, with explanations
+        List of BookRecommendation models matching the criteria, with explanations
     """
-    # Create BookPreferences object
+    logger.info(
+        f"search_books_by_criteria called: age={age}, purpose={purpose}, budget={budget}, genre={genre}, query_text={query_text}"
+    )
     preferences = BookPreferences(age=age, purpose=purpose, budget=budget, genre=genre, query_text=query_text)
+    try:
+        results = search_books(db, preferences)
+        logger.info(f"search_books_by_criteria results: count={len(results)}, titles={[r.title for r in results]}")
+        return results
+    except Exception as e:
+        logger.error(f"Error in search_books_by_criteria: {e}", exc_info=True)
+        return []
 
-    # Search for books
-    return search_books(db, preferences)
+
+def search_books(db: Session, preferences: BookPreferences) -> List[BookRecommendation]:
+    """
+    Search for books in the database based on user preferences.
+
+    Workflow:
+    1. If preferences.query_text is provided, perform a semantic vector search to get
+       relevant book IDs.
+    2. Build a SQLAlchemy query for Book, optionally filtering by the vector search results.
+    3. Apply additional SQL filters for age, purpose, and genre.
+    4. Execute the SQL query with a limit (max_suggestion_book).
+    5. If the SQL results are insufficient, supplement with vector search results
+       (avoiding duplicates).
+    6. Filter the combined results by budget, if specified.
+    7. Generate personalized explanations for each recommended book.
+    8. Return a list of book dictionaries, each with an explanation.
+    """
+
+    # If query text is provided, first try semantic search
+    book_ids = []
+
+    if preferences.query_text:
+        logger.info(f"Performing semantic search with query: {preferences.query_text}")
+        book_ids = search_by_vector(preferences.query_text)
+
+    query = db.query(Book)
+    if book_ids:
+        query = query.filter(Book.id.in_(book_ids))
+
+    query = _apply_filters(query, preferences)
+    logger.debug(
+        f"SQL filters: age={preferences.age}, purpose={preferences.purpose}, "
+        f"genre={preferences.genre}, budget={preferences.budget}, "
+        f"query_text={preferences.query_text}"
+    )
+    max_suggestion_book = 3
+    books = query.limit(max_suggestion_book).all()
+    logger.info(f"SQL query returned {len(books)} books: {[b.title for b in books]}")
+
+    books = _supplement_with_vector_search(books, preferences, db, max_suggestion_book)
+    logger.info(f"After vector supplement: {len(books)} books: {[b.title for b in books]}")
+
+    books = _filter_by_budget(books, preferences.budget)
+    logger.info(
+        f"After budget filter: {len(books)} books: {[b.title for b in books]}, prices: {[b.price for b in books]}"
+    )
+
+    if books:
+        explanations = generate_explanations(books, preferences)
+        result = []
+
+        for book in books:
+            book_dict = book.to_dict()
+            age_phrase = "suitable for readers of all ages"
+            if book.from_age is not None and book.to_age is not None:
+                age_phrase = f"suitable for ages {book.from_age}-{book.to_age}"
+
+            # Build the default explanation
+            default_explanation = f"This book is {age_phrase} and focuses on {book.purpose}."
+
+            # Convert the book ID to int and look up any custom explanation
+            book_id_int = int(book.id)
+            custom_explanation = explanations.get(book_id_int)
+
+            # Assign either the custom explanation (if it exists) or the default one
+            book_dict["reason"] = default_explanation
+            if custom_explanation is not None:
+                book_dict["reason"] = custom_explanation
+
+            try:
+                result.append(BookRecommendation(**book_dict))
+            except Exception as e:
+                logger.error(f"Error creating BookRecommendation model: {e}, data: {book_dict}", exc_info=True)
+
+        return result
+
+    return []
 
 
 def _apply_filters(query, preferences):
@@ -148,68 +232,3 @@ def _filter_by_budget(books, budget):
             budget_books = [cheapest_book]
 
     return budget_books
-
-
-def search_books(db: Session, preferences: BookPreferences) -> List[Dict[str, Any]]:
-    """
-    Search for books in the database based on user preferences.
-
-    Workflow:
-    1. If preferences.query_text is provided, perform a semantic vector search to get
-       relevant book IDs.
-    2. Build a SQLAlchemy query for Book, optionally filtering by the vector search results.
-    3. Apply additional SQL filters for age, purpose, and genre.
-    4. Execute the SQL query with a limit (max_suggestion_book).
-    5. If the SQL results are insufficient, supplement with vector search results
-       (avoiding duplicates).
-    6. Filter the combined results by budget, if specified.
-    7. Generate personalized explanations for each recommended book.
-    8. Return a list of book dictionaries, each with an explanation.
-    """
-
-    # If query text is provided, first try semantic search
-    book_ids = []
-
-    if preferences.query_text:
-        logger.info(f"Performing semantic search with query: {preferences.query_text}")
-        book_ids = search_by_vector(preferences.query_text)
-
-    query = db.query(Book)
-    if book_ids:
-        query = query.filter(Book.id.in_(book_ids))
-
-    query = _apply_filters(query, preferences)
-    logger.debug(
-        f"SQL filters: age={preferences.age}, purpose={preferences.purpose}, "
-        f"genre={preferences.genre}, budget={preferences.budget}, "
-        f"query_text={preferences.query_text}"
-    )
-    max_suggestion_book = 3
-    books = query.limit(max_suggestion_book).all()
-    logger.debug(f"SQL query returned {len(books)} books")
-
-    books = _supplement_with_vector_search(books, preferences, db, max_suggestion_book)
-    books = _filter_by_budget(books, preferences.budget)
-    logger.info(
-        f"Found {len(books)} books matching criteria: age={preferences.age}, "
-        f"purpose={preferences.purpose}, budget={preferences.budget}, "
-        f"genre={preferences.genre}, "
-        f"query_text={preferences.query_text and 'provided' or 'none'}"
-    )
-
-    if books:
-        explanations = generate_explanations(books, preferences)
-        result = []
-
-        for book in books:
-            book_dict = book.to_dict()
-            book_dict["explanation"] = explanations.get(
-                int(book.id),
-                f"This book is {('suitable for ages ' + str(book.from_age) + '-' + str(book.to_age)) if book.from_age is not None and book.to_age is not None else 'suitable for readers of all ages'} "
-                f"and focuses on {book.purpose}.",
-            )
-            result.append(book_dict)
-
-        return result
-
-    return []

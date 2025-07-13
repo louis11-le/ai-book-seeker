@@ -1,0 +1,17 @@
+Q: Do you offer curbside pickup?
+A: Yes, we offer curbside pickup for online and phone orders.
+
+Q: Can I order books online?
+A: Yes, you can order books through our website.
+
+Q: What payment methods do you accept?
+A: We accept cash, credit cards, debit cards, and PayPal.
+
+Q: Are there discounts for bulk purchases?
+A: Bulk discounts are available for large orders.
+
+Q: Do you offer corporate accounts?
+A: Yes, we offer accounts for businesses and organizations.
+
+Q: Can I get a receipt emailed to me?
+A: Yes, we can email your receipt upon request.

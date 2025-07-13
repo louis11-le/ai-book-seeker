@@ -8,9 +8,13 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .api.routes import router as api_router
+from .api.routes.chat import router as chat_router
+from .api.routes.session import router as session_router
+from .api.routes.voice_assistant import router as voice_assistant_router
+from .core.config import BACKEND_DIR
 from .core.logging import get_logger
 from .db.database import get_db_session
+from .features.search_faq.faq_service import FAQService
 from .metadata_extraction import metadata_router
 from .services.vectordb import initialize_vector_db
 
@@ -30,8 +34,14 @@ app.add_middleware(
 )
 
 
-# Include API routes
-app.include_router(api_router, prefix="/api")
+# Include voice assistant routes
+app.include_router(voice_assistant_router, prefix="/api")
+
+# Include chat routes
+app.include_router(chat_router, prefix="/api")
+
+# Include session routes
+app.include_router(session_router, prefix="/api")
 
 # Include metadata extraction routes
 app.include_router(metadata_router, prefix="/api")
@@ -54,6 +64,11 @@ async def startup_event():
         # Initialize the vector database
         initialize_vector_db(db)
         logger.info("Vector database initialized successfully")
+
+    # Initialize FAQService and store in app.state
+    kb_dir = BACKEND_DIR / "src/ai_book_seeker/prompts/voice_assistant/elevenlabs/knowledge_base"
+    app.state.faq_service = await FAQService.async_init(str(kb_dir))
+    logger.info("FAQService initialized and stored in app.state")
 
 
 @app.get("/")
