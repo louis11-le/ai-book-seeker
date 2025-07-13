@@ -7,20 +7,25 @@ using OpenAI's GPT models.
 
 from typing import Dict, List, Optional
 
-from dotenv import load_dotenv
-from openai import OpenAI
-from pydantic import BaseModel
-
-from ai_book_seeker.core.config import BATCH_SIZE, OPENAI_API_KEY, OPENAI_MAX_TOKENS, OPENAI_MODEL, OPENAI_TEMPERATURE
+from ai_book_seeker.core.config import (
+    BATCH_SIZE,
+    OPENAI_API_KEY,
+    OPENAI_MAX_TOKENS,
+    OPENAI_MODEL,
+    OPENAI_TEMPERATURE,
+)
 from ai_book_seeker.core.logging import get_logger
 from ai_book_seeker.db.models import Book
 from ai_book_seeker.prompts import get_explainer_prompt
+from dotenv import load_dotenv
+from openai import OpenAI
+from pydantic import BaseModel
 
 # Load environment variables
 load_dotenv()
 
 # Set up logging
-logger = get_logger("explainer")
+logger = get_logger(__name__)
 
 # OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -36,39 +41,44 @@ class BookPreferences(BaseModel):
     query_text: Optional[str] = None
 
 
+def strip_markdown(text: str) -> str:
+    """Remove markdown formatting from a string (bold, italics, etc.)."""
+    import re
+
+    # Remove bold (**text** or __text__)
+    text = re.sub(r"(\*\*|__)(.*?)\1", r"\2", text)
+    # Remove italics (*text* or _text_)
+    text = re.sub(r"(\*|_)(.*?)\1", r"\2", text)
+    # Remove inline code (`text`)
+    text = re.sub(r"`([^`]*)`", r"\1", text)
+    # Remove bullet points and extra asterisks
+    text = re.sub(r"^\s*[-*]+\s*", "", text, flags=re.MULTILINE)
+    return text
+
+
 def generate_explanations(books: List[Book], preferences: BookPreferences) -> Dict[int, str]:
     """
     Generate explanations for books based on user preferences
-
-    Args:
-        books: List of books to generate explanations for
-        preferences: User preferences for recommendations
-
-    Returns:
-        Dictionary mapping book IDs to explanations
     """
+    logger.info(f"generate_explanations called: num_books={len(books)}, preferences={preferences.dict()}")
     explanations = {}
 
     # Process books in batches to reduce API calls
     for i in range(0, len(books), BATCH_SIZE):
         batch = books[i : i + BATCH_SIZE]
         batch_explanations = _generate_batch_explanations(batch, preferences)
+        # Strip markdown from all explanations
+        batch_explanations = {k: strip_markdown(v) for k, v in batch_explanations.items()}
         explanations.update(batch_explanations)
 
+    logger.info(
+        f"generate_explanations completed: num_explanations={len(explanations)}, book_ids={list(explanations.keys())}"
+    )
     return explanations
 
 
 def _generate_batch_explanations(books: List[Book], preferences: BookPreferences) -> Dict[int, str]:
-    """
-    Generate explanations for a batch of books
-
-    Args:
-        books: Batch of books to generate explanations for
-        preferences: User preferences for recommendations
-
-    Returns:
-        Dictionary mapping book IDs to explanations
-    """
+    logger.info(f"_generate_batch_explanations called: batch_size={len(books)}, preferences={preferences.dict()}")
     try:
         # Create prompt for explanation generation
         prompt = _create_prompt(books, preferences)
@@ -83,15 +93,16 @@ def _generate_batch_explanations(books: List[Book], preferences: BookPreferences
 
         content = response.choices[0].message.content
         if not content:
-            logger.warning("Empty response from OpenAI API")
+            logger.info("_generate_batch_explanations: Empty response from OpenAI API")
             return {}
 
         # Parse explanations
         return _parse_explanations(content, books)
 
     except Exception as e:
-        logger.error(f"Error generating explanations: {e}")
-        return {}
+        logger.error(f"Error generating explanations: {e}", exc_info=True)
+        # Return a fallback explanation for each book in the batch, only for books with a valid int id
+        return {book.id: "Fallback explanation." for book in books if isinstance(book.id, int)}
 
 
 def _create_prompt(books: List[Book], preferences: BookPreferences) -> str:
@@ -125,26 +136,16 @@ def _create_prompt(books: List[Book], preferences: BookPreferences) -> str:
     BOOKS TO EVALUATE:
     {books_text}
     """
-
+    # logger.info(f"_create_prompt: prompt_length={len(prompt)}, preview={prompt[:200].replace(chr(10), ' ')}...")
     return prompt
 
 
 def _parse_explanations(content: str, books: List[Book]) -> Dict[int, str]:
-    """
-    Parse explanations from API response
-
-    Args:
-        content: Response content from API
-        books: List of books
-
-    Returns:
-        Dictionary mapping book IDs to explanations
-    """
+    logger.info(f"_parse_explanations called: content_length={len(content)}, num_books={len(books)}")
     explanations = {}
     book_ids = {book.id for book in books}
 
     # Try multiple parsing approaches to handle different response formats
-
     # Handle multi-line format with [BOOK_ID:id] and [/BOOK_ID] tags
     if "[/BOOK_ID]" in content:
         sections = content.split("[BOOK_ID:")
@@ -154,6 +155,7 @@ def _parse_explanations(content: str, books: List[Book]) -> Dict[int, str]:
                 id_end = section.find("]")
                 if id_end == -1:
                     continue
+
                 book_id = int(section[:id_end].strip())
 
                 # Extract the explanation text between the tags
@@ -162,6 +164,7 @@ def _parse_explanations(content: str, books: List[Book]) -> Dict[int, str]:
                 # Only add explanations for valid book IDs
                 if book_id in book_ids:
                     explanations[book_id] = explanation_text
+                    logger.info(f"book_id: {book_id}, explanation text: {explanation_text}")
             except (ValueError, IndexError) as e:
                 logger.warning(f"Failed to parse multi-line explanation: {e}")
 
@@ -170,7 +173,6 @@ def _parse_explanations(content: str, books: List[Book]) -> Dict[int, str]:
         try:
             # Split by [BOOK_ID: to get individual explanations
             parts = content.split("[BOOK_ID:")
-
             for part in parts[1:]:  # Skip the first empty part
                 # Find the end of the book ID
                 id_end = part.find("]")
@@ -185,7 +187,6 @@ def _parse_explanations(content: str, books: List[Book]) -> Dict[int, str]:
 
                 # Find the next [BOOK_ID: if it exists
                 next_book = part.find("[BOOK_ID:", explanation_start)
-
                 if next_book == -1:
                     # This is the last explanation
                     explanation = part[explanation_start:].strip()
@@ -196,6 +197,7 @@ def _parse_explanations(content: str, books: List[Book]) -> Dict[int, str]:
                 # Only add explanations for valid book IDs
                 if book_id in book_ids:
                     explanations[book_id] = explanation
+                    logger.info(f"book_id: {book_id}, explanation: {explanation}")
         except (ValueError, IndexError) as e:
             logger.warning(f"Failed to parse consecutive book ID format: {e}")
 
@@ -214,7 +216,12 @@ def _parse_explanations(content: str, books: List[Book]) -> Dict[int, str]:
                     # Only add explanations for valid book IDs
                     if book_id in book_ids:
                         explanations[book_id] = explanation
+                        logger.info(f"book_id: {book_id}, explanation: {explanation}")
                 except (ValueError, IndexError) as e:
                     logger.warning(f"Failed to parse book ID or explanation from line: {e}")
+
+    logger.info(
+        f"_parse_explanations completed: num_explanations={len(explanations)}, book_ids={list(explanations.keys())}"
+    )
 
     return explanations

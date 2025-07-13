@@ -116,6 +116,7 @@ node_modules/
 
 # ChromaDB data
 **/chromadb_data/
+**/chromadb_faq
 
 # Next.js build output
 frontend/.next/

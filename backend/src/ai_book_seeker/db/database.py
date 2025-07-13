@@ -5,11 +5,9 @@ Database connection and session management for the AI Book Seeker application.
 from contextlib import contextmanager
 from typing import Generator
 
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import Session, sessionmaker
-
 from ai_book_seeker.core.logging import get_logger
 from ai_book_seeker.db.connection import engine
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 # Initialize logger
 logger = get_logger(__name__)

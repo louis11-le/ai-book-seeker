@@ -1,0 +1,55 @@
+{
+  "name": "get_book_recommendation",
+  "description": "Call this tool to get a book recommendation from the backend system. Provide the user's request as 'message'. The backend will return a JSON object with the answer in response.output. Use ONLY the value of response.output as your reply to the user.",
+  "type": "webhook",
+  "api_schema": {
+    "url": "https://b42fb4fd9666.ngrok-free.app/api/voice",
+    "method": "POST",
+    "path_params_schema": [],
+    "query_params_schema": [],
+    "request_body_schema": {
+      "id": "body",
+      "type": "object",
+      "description": "The request body for a book recommendation via voice. Contains the user's transcribed request or question (as 'message') and an optional session_id for maintaining conversation context across multiple requests.",
+      "properties": [
+        {
+          "id": "session_id",
+          "type": "string",
+          "value_type": "llm_prompt",
+          "description": "A unique identifier for the user's session, used to maintain context across multiple requests. Optional—if not provided, the backend will generate a new session ID. Use the same session_id for follow-up questions to enable multi-turn conversations. Example: '123e4567-e89b-12d3-a456-426614174000'",
+          "dynamic_variable": "",
+          "constant_value": "",
+          "required": false
+        },
+        {
+          "id": "message",
+          "type": "string",
+          "value_type": "llm_prompt",
+          "description": "The user's request or question, as transcribed from their voice input. This should be a natural language string representing what the user said. Example: 'Can you recommend a book for a 10-year-old who likes adventure?'",
+          "dynamic_variable": "",
+          "constant_value": "",
+          "required": true
+        }
+      ],
+      "required": false,
+      "value_type": "llm_prompt"
+    },
+    "request_headers": [
+      {
+        "type": "value",
+        "name": "Content-Type",
+        "value": "application/json"
+      },
+      {
+        "type": "secret",
+        "name": "X-API-KEY",
+        "secret_id": "uluva6mztNVmHMfHK9Av"
+      }
+    ],
+    "auth_connection": null
+  },
+  "response_timeout_secs": 30,
+  "dynamic_variables": {
+    "dynamic_variable_placeholders": {}
+  }
+}

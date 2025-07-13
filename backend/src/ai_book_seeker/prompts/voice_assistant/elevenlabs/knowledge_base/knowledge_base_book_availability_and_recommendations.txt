@@ -1,0 +1,8 @@
+Q: Can you recommend a book for me?
+A: I can recommend books from our current inventory. Please tell me your interests or who the book is for, and I’ll suggest options we have available. If I can't find a match, I'll let you know. I will never recommend books that are not in our database.
+
+Q: How do I know if a book is in stock?
+A: You can check availability on our website or ask a staff member.
+
+Q: Can you order a book that’s not in stock?
+A: Yes, we can special order most books for you.

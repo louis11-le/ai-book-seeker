@@ -3,13 +3,15 @@ PyTest configuration and fixtures for the AI Book Seeker test suite.
 """
 
 import pytest
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 # Import directly from the ai_book_seeker package
 from ai_book_seeker.db.database import Base
 from ai_book_seeker.db.models import Book
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from .helpers import create_test_book
 
 
 @pytest.fixture
@@ -50,3 +52,18 @@ def test_book(test_db):
     test_db.commit()
     test_db.refresh(book)
     return book
+
+
+@pytest.fixture
+def book_factory():
+    """
+    Pytest fixture that returns a factory function for creating Book instances with custom values.
+    Usage:
+        def test_something(book_factory):
+            book = book_factory(title="Custom Title", price=9.99)
+    """
+
+    def _factory(**kwargs):
+        return create_test_book(**kwargs)
+
+    return _factory

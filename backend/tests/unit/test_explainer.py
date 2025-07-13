@@ -2,79 +2,109 @@
 Unit tests for the explainer service module.
 """
 
-import os
-from pathlib import Path
-from unittest.mock import MagicMock, patch
-
 import pytest
-
-from ai_book_seeker.services.explainer import explain_recommendation
+from ai_book_seeker.db.models import Book
+from ai_book_seeker.services.explainer import generate_explanations
 from ai_book_seeker.services.query import BookPreferences
 
 
-@patch("ai_book_seeker.services.explainer.openai")
-def test_explain_recommendation(mock_openai):
-    """Test generating an explanation for a book recommendation."""
-    # Mock the OpenAI API call
-    mock_chat_completion = MagicMock()
-    mock_openai.ChatCompletion.create.return_value = mock_chat_completion
-    mock_chat_completion.choices = [MagicMock()]
-    mock_chat_completion.choices[0].message.content = "This book is perfect for your interests in space exploration."
-
-    # Create test preferences
-    preferences = BookPreferences(query_text="books about space", age="10-12", genre="science")
-
-    # Call the function
-    explanation = explain_recommendation("123", preferences)
-
-    # Check that the OpenAI API was called
-    mock_openai.ChatCompletion.create.assert_called_once()
-
-    # Check that we got the expected explanation
-    assert explanation == "This book is perfect for your interests in space exploration."
+@pytest.fixture
+def preferences() -> BookPreferences:
+    return BookPreferences(query_text="books about space", age=10, genre="science")
 
 
-@patch("ai_book_seeker.services.explainer.openai")
-@patch("ai_book_seeker.services.explainer.load_text_file")
-def test_explain_recommendation_with_template(mock_load_text_file, mock_openai):
-    """Test generating an explanation with a template."""
-    # Mock loading the template
-    mock_load_text_file.return_value = "Explain why book {title} by {author} is a good fit for {preferences}"
-
-    # Mock the OpenAI response
-    mock_chat_completion = MagicMock()
-    mock_openai.ChatCompletion.create.return_value = mock_chat_completion
-    mock_chat_completion.choices = [MagicMock()]
-    mock_chat_completion.choices[0].message.content = "This fantasy book is appropriate for a 12-year-old."
-
-    # Create test preferences
-    preferences = BookPreferences(age="12", genre="fantasy")
-
-    # Call the function
-    explanation = explain_recommendation("456", preferences)
-
-    # Check that the OpenAI API was called
-    mock_openai.ChatCompletion.create.assert_called_once()
-
-    # Check that we got the expected explanation
-    assert explanation == "This fantasy book is appropriate for a 12-year-old."
-
-    # Check that the template was loaded
-    mock_load_text_file.assert_called_once()
+@pytest.fixture
+def mock_book():
+    # Minimal Book object with required attributes
+    return Book(
+        id=123,
+        title="Space Adventures",
+        author="Jane Doe",
+        from_age=10,
+        to_age=12,
+        purpose="entertainment",
+        genre="science",
+        description="A thrilling journey through the cosmos.",
+        price=12.99,
+        tags="space, adventure",
+        quantity=1,
+    )
 
 
-@patch("ai_book_seeker.services.explainer.openai")
-def test_explain_recommendation_error_handling(mock_openai):
-    """Test error handling in the explain_recommendation function."""
-    # Mock an error from the OpenAI API
-    mock_openai.ChatCompletion.create.side_effect = Exception("API error")
+@pytest.mark.parametrize(
+    "book_id, prefs, expected",
+    [
+        (
+            123,
+            BookPreferences(query_text="books about space", age=10, genre="science"),
+            "This book is perfect for your interests in space exploration.",
+        ),
+        (456, BookPreferences(age=12, genre="fantasy"), "This fantasy book is appropriate for a 12-year-old."),
+    ],
+)
+def test_generate_explanations_success(mocker, book_id: int, prefs: BookPreferences, expected: str):
+    """Test generating an explanation for a book recommendation (with and without template)."""
+    mock_openai = mocker.patch("ai_book_seeker.services.explainer.client")
+    mock_load_text_file = mocker.patch(
+        "ai_book_seeker.services.explainer.get_explainer_prompt",
+        return_value="Explain why book {title} by {author} is a good fit for {preferences}",
+    )
+    mock_chat_completion = mocker.MagicMock()
+    mock_openai.chat.completions.create.return_value = mock_chat_completion
+    mock_choice = mocker.MagicMock()
+    mock_choice.message.content = f"[BOOK_ID:{book_id}]{expected}[/BOOK_ID]"
+    mock_chat_completion.choices = [mock_choice]
+    # Create a Book object with the correct id
+    book = Book(
+        id=book_id,
+        title="Test Book",
+        author="Test Author",
+        from_age=10,
+        to_age=12,
+        purpose="entertainment",
+        genre="science",
+        description="A test book.",
+        price=10.0,
+        tags="test",
+        quantity=1,
+    )
+    explanations = generate_explanations([book], prefs)
+    mock_openai.chat.completions.create.assert_called_once()
+    assert explanations[book_id] == expected
+    mock_load_text_file.assert_called()
 
-    # Create test preferences
-    preferences = BookPreferences(age="teen", purpose="learning")
 
-    # Call the function
-    explanation = explain_recommendation("789", preferences)
+def test_generate_explanations_error_handling(mocker, mock_book, preferences: BookPreferences):
+    """Test error handling in the generate_explanations function."""
+    mock_openai = mocker.patch("ai_book_seeker.services.explainer.client")
+    mock_openai.chat.completions.create.side_effect = Exception("API error")
+    explanations = generate_explanations([mock_book], preferences)
+    assert explanations == {123: "Fallback explanation."}
 
-    # Check that we got an error message
-    assert "Error" in explanation
-    assert "API error" in explanation
+
+def test_generate_explanations_template_load_failure(mocker, mock_book, preferences: BookPreferences):
+    """Test error handling when template loading fails."""
+    mock_openai = mocker.patch("ai_book_seeker.services.explainer.client")
+    mocker.patch(
+        "ai_book_seeker.services.explainer.get_explainer_prompt", side_effect=FileNotFoundError("template missing")
+    )
+    mock_chat_completion = mocker.MagicMock()
+    mock_openai.chat.completions.create.return_value = mock_chat_completion
+    mock_choice = mocker.MagicMock()
+    mock_choice.message.content = "[BOOK_ID:123]Fallback explanation.[/BOOK_ID]"
+    mock_chat_completion.choices = [mock_choice]
+    explanations = generate_explanations([mock_book], preferences)
+    assert explanations[123] == "Fallback explanation."
+
+
+def test_generate_explanations_empty_preferences(mocker, mock_book):
+    """Test explanation generation with empty preferences (edge case)."""
+    mock_openai = mocker.patch("ai_book_seeker.services.explainer.client")
+    mock_chat_completion = mocker.MagicMock()
+    mock_openai.chat.completions.create.return_value = mock_chat_completion
+    mock_choice = mocker.MagicMock()
+    mock_choice.message.content = "[BOOK_ID:123]General recommendation.[/BOOK_ID]"
+    mock_chat_completion.choices = [mock_choice]
+    empty_prefs = BookPreferences()
+    explanations = generate_explanations([mock_book], empty_prefs)
+    assert explanations[123] == "General recommendation."

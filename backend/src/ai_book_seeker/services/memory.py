@@ -6,7 +6,7 @@ It provides functionality for creating, retrieving, updating, and deleting chat 
 as well as compressing conversation history to maintain context within token limits.
 
 The SessionMemory class uses Redis for storing session data with appropriate TTL (time-to-live)
-settings and implements conversation context compression using OpenAI's GPT-4.
+settings and implements conversation context compression using OpenAI's GPT-4o.
 """
 
 import json
@@ -15,23 +15,26 @@ import uuid
 from typing import Any, Dict, Optional
 
 import tiktoken
-from dotenv import load_dotenv
-from openai import OpenAI
-
-from ai_book_seeker.core.config import OPENAI_API_KEY, OPENAI_MODEL, REDIS_EXPIRE_SECONDS
+from ai_book_seeker.core.config import (
+    OPENAI_API_KEY,
+    OPENAI_MODEL,
+    REDIS_EXPIRE_SECONDS,
+)
 from ai_book_seeker.core.logging import get_logger
 from ai_book_seeker.db.connection import redis_client
+from dotenv import load_dotenv
+from openai import OpenAI
 
 # Load environment variables
 load_dotenv()
 
 # Set up logging
-logger = get_logger("memory")
+logger = get_logger(__name__)
 
 # Constants
 MAX_TURNS_TO_STORE = 10
 MAX_TOKENS_FOR_CONTEXT = 4000  # Limit to avoid hitting token limits
-ENCODING = tiktoken.get_encoding("cl100k_base")  # GPT-4 encoding
+ENCODING = tiktoken.get_encoding("cl100k_base")  # GPT-4o encoding
 
 # OpenAI client
 client = OpenAI(api_key=OPENAI_API_KEY)
@@ -62,7 +65,7 @@ class SessionMemory:
             ex=REDIS_EXPIRE_SECONDS,
         )
 
-        logger.info(f"Created new session: {session_id}")
+        logger.info(f"created_new_session: session_id={session_id}")
         return session_id
 
     @staticmethod
@@ -72,7 +75,7 @@ class SessionMemory:
             session_key = SessionMemory.get_session_key(session_id)
             session_data = redis_client.get(session_key)
             if not session_data:
-                logger.warning(f"Session not found: {session_id}")
+                logger.warning(f"session_not_found: session_id={session_id}")
                 return None
 
             # Ensure session_data is a string or bytes for json.loads
@@ -84,7 +87,7 @@ class SessionMemory:
 
             return json.loads(session_data_str)
         except Exception as e:
-            logger.error(f"Error retrieving session {session_id}: {e}")
+            logger.error(f"error_retrieving_session: session_id={session_id} error={str(e)}", exc_info=True)
             return None
 
     @staticmethod
@@ -93,11 +96,11 @@ class SessionMemory:
         session_data = SessionMemory.get_session(session_id)
         if not session_data:
             # Session doesn't exist, create a new one
-            logger.warning(f"Session {session_id} not found, creating new session")
+            logger.warning(f"session_not_found_creating_new: session_id={session_id}")
             session_id = SessionMemory.create_session()
             session_data = SessionMemory.get_session(session_id)
             if not session_data:
-                logger.error("Failed to create new session")
+                logger.error("failed_to_create_new_session")
                 return
 
         # Add new turn
@@ -137,13 +140,13 @@ class SessionMemory:
                 json.dumps(session_data),
                 ex=REDIS_EXPIRE_SECONDS,
             )
-            logger.debug(f"Updated session: {session_id}")
+            logger.info(f"updated_session: session_id={session_id}")
         except Exception as e:
-            logger.error(f"Error saving session {session_id}: {e}")
+            logger.error(f"error_saving_session: session_id={session_id} error={str(e)}", exc_info=True)
 
     @staticmethod
     def compress_history(conversation_history: str) -> str:
-        """Compress conversation history using GPT-4"""
+        """Compress conversation history using GPT-4o"""
         try:
             system_message = (
                 "You are a helpful assistant that summarizes conversations. "
@@ -168,7 +171,7 @@ class SessionMemory:
             # Ensure we always return a string
             return content if content is not None else ""
         except Exception as e:
-            logger.error(f"Error compressing chat history: {e}")
+            logger.error(f"error_compressing_chat_history: error={str(e)}", exc_info=True)
             # If compression fails, return truncated original
             tokens = ENCODING.encode(conversation_history)
             if len(tokens) > MAX_TOKENS_FOR_CONTEXT:
@@ -183,7 +186,7 @@ class SessionMemory:
         """Get the full conversation context for the session"""
         session_data = SessionMemory.get_session(session_id)
         if not session_data:
-            logger.warning(f"No context found for session: {session_id}")
+            logger.warning(f"no_context_found_for_session: session_id={session_id}")
             return ""
 
         context = ""
@@ -203,7 +206,7 @@ class SessionMemory:
         """Delete a session"""
         try:
             redis_client.delete(SessionMemory.get_session_key(session_id))
-            logger.info(f"Deleted session: {session_id}")
+            logger.info(f"deleted_session: session_id={session_id}")
         except Exception as e:
-            logger.error(f"Error deleting session {session_id}: {e}")
+            logger.error(f"error_deleting_session: session_id={session_id} error={str(e)}", exc_info=True)
             raise

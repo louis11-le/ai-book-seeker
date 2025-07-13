@@ -1,133 +1,35 @@
 """
-AI Book Seeker OpenAI Function Calling Tools
+LangChain Tool Central Registry
 
-This module provides tool functions that OpenAI function calling can use for
-AI Book Seeker's chatbot. These are specifically formatted with Pydantic models
-to match OpenAI's function calling schema.
+This module aggregates all feature tool registrations for the LangChain agent.
+Each feature (FAQ, Book Recommendation, Purchase Book, etc.) should define its own tool.py
+with input/output schemas and a register_tool() function.
+
+This file imports and aggregates all feature tools for agent orchestration.
 """
 
-from typing import List, Optional
+from typing import Any, Dict, List
 
-from dotenv import load_dotenv
-from openai import OpenAI
-from openai.types.chat import ChatCompletionToolParam
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from ai_book_seeker.core.config import INTERFACE_TOOL_MAP
+from ai_book_seeker.features.get_book_recommendation.tool import (
+    register_tool as register_book_recommendation_tool,
+)
+from ai_book_seeker.features.search_faq.tool import register_tool as register_faq_tool
 
-from ai_book_seeker.core.config import OPENAI_API_KEY, OPENAI_MODEL
-from ai_book_seeker.core.logging import get_logger
-from ai_book_seeker.services.explainer import BookPreferences
-from ai_book_seeker.services.query import search_books as db_search_books
-
-# Set up logging
-logger = get_logger("tools")
-
-# Load environment variables
-load_dotenv()
-
-# OpenAI client
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-# Get model from environment
-if not OPENAI_MODEL:
-    logger.error("OPENAI_MODEL environment variable is required")
-    raise ValueError("OPENAI_MODEL environment variable is required")
+# TODO: from ai_book_seeker.features.purchase_book.tool import register_tool as register_purchase_book_tool
 
 
-class SearchBooksParams(BaseModel):
-    age: Optional[int] = Field(None, description="The age of the reader")
-    purpose: Optional[str] = Field(None, description="The purpose of the book (learning, entertainment)")
-    budget: Optional[float] = Field(None, description="The budget for buying books")
-    genre: Optional[str] = Field(None, description="The preferred genre")
-
-
-class BookResult(BaseModel):
-    id: int
-    title: str
-    author: str
-    description: str
-    from_age: Optional[int] = None
-    to_age: Optional[int] = None
-    purpose: str
-    genre: str
-    price: float
-    tags: List[str]
-    reason: Optional[str] = None
-
-
-# Tool definitions
-# Using explicit type annotations to match OpenAI's expected format
-search_books_tool: ChatCompletionToolParam = {
-    "type": "function",
-    "function": {
-        "name": "search_books",
-        "description": "Search books that match user preferences",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "age": {"type": "integer", "description": "The age of the reader"},
-                "purpose": {
-                    "type": "string",
-                    "description": "The purpose of the book (learning, entertainment)",
-                },
-                "budget": {
-                    "type": "number",
-                    "description": "The budget for buying books",
-                },
-                "genre": {
-                    "type": "string",
-                    "description": "The preferred genre (optional)",
-                },
-            },
-            "required": [],
-        },
-    },
-}
-
-
-# Tool implementation
-def search_books(db: Session, params: SearchBooksParams) -> List[BookResult]:
+def get_all_tools(app, interface: str = "chat") -> List[Dict[str, Any]]:
     """
-    Search for books based on provided parameters.
+    Return a list of registered tools for the LangChain agent, filtered by interface type.
+    The app instance is passed to each tool registration for dependency injection.
+    Only tools enabled for the given interface (per INTERFACE_TOOL_MAP) are returned.
     """
-    # Create BookPreferences from the params
-    preferences = BookPreferences(
-        age=params.age,
-        purpose=params.purpose,
-        budget=params.budget,
-        genre=params.genre,
-        query_text=None,  # No query text from function calling
-    )
-
-    # Search for books directly
-    book_dicts = db_search_books(db, preferences)
-
-    # Convert to BookResult objects
-    book_results = []
-    for book_dict in book_dicts:
-        # Convert tags string to list
-        tag_list = []
-        if book_dict.get("tags"):
-            tag_list = [tag.strip() for tag in book_dict["tags"].split(",")]
-
-        book_results.append(
-            BookResult(
-                id=int(book_dict["id"]),
-                title=str(book_dict["title"]),
-                author=str(book_dict["author"]),
-                description=str(book_dict.get("description", "")),
-                from_age=int(book_dict.get("from_age", 0)),
-                to_age=int(book_dict.get("to_age", 0)),
-                purpose=str(book_dict.get("purpose", "")),
-                genre=str(book_dict.get("genre", "")),
-                price=float(book_dict["price"]) if book_dict.get("price") else 0.0,
-                tags=tag_list,
-                reason=book_dict.get("explanation", None),
-            )
-        )
-
-    return book_results
-
-
-# List of available tools
-available_tools = [search_books_tool]
+    all_tools = {
+        "search_faq": register_faq_tool(app),
+        "get_book_recommendation": register_book_recommendation_tool(),
+        # "purchase_book": register_purchase_book_tool(app),
+    }
+    enabled_tool_names = INTERFACE_TOOL_MAP.get(interface, [])
+    tools = [all_tools[name] for name in enabled_tool_names if name in all_tools]
+    return tools

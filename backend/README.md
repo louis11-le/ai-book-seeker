@@ -6,85 +6,114 @@ An AI-powered book recommendation system that suggests books based on user prefe
 
 ```
 backend/
-├── src/                       # Source code
-│   └── ai_book_seeker/        # Main package
-│       ├── api/               # API endpoints and routes
-│       │   ├── __init__.py
-│       │   └── routes.py      # FastAPI route definitions
-│       ├── core/              # Core functionality
-│       │   ├── __init__.py
-│       │   ├── config.py      # Configuration management
-│       │   └── logging.py     # Logging setup
-│       ├── db/                # Database models and connections
-│       │   ├── __init__.py
-│       │   ├── connection.py  # Database connection setup
-│       │   ├── database.py    # Database session management
-│       │   └── models.py      # SQLAlchemy models
-│       ├── metadata_extraction/ # Book metadata extraction
-│       ├── prompts/           # Prompt templates
-│       ├── services/          # Business logic
-│       │   ├── __init__.py
-│       │   ├── chat_parser.py # Chat request processing
-│       │   ├── explainer.py   # Book recommendation explanations
-│       │   ├── memory.py      # Session memory management
-│       │   ├── query.py       # Book search functionality
-│       │   ├── tools.py       # Tool definitions
-│       │   └── vectordb.py    # Vector database operations
-│       ├── utils/             # Utility functions
-│       ├── __init__.py        # Package initialization
-│       └── main.py            # Application entry point
-├── docs/                      # Documentation
-│   ├── features/             # Feature specifications
-│   └── book_metadata_extraction.md  # Technical documentation
-├── tests/                     # Test suite
-│   ├── integration/           # Integration tests
-│   └── unit/                  # Unit tests
-├── setup.py                   # Package installation
-├── pyproject.toml             # Project configuration
-├── requirements.txt           # Production dependencies
-└── requirements-dev.txt       # Development dependencies
+├── src/
+│   └── ai_book_seeker/
+│       ├── api/
+│       │   ├── routes/                # Feature-based route files (chat, session, voice_assistant)
+│       │   ├── schemas/               # Pydantic schemas for API
+│       ├── core/                      # Core config and logging
+│       ├── db/                        # Database models, connection, migrations
+│       ├── features/                  # Modular features (get_book_recommendation, search_faq, purchase_book)
+│       ├── metadata_extraction/       # Book metadata extraction pipeline
+│       ├── prompts/                   # Prompt templates (including voice_assistant/elevenlabs)
+│       ├── services/                  # Orchestrator, tools, memory, explainer, etc.
+│       ├── utils/                     # Utility functions
+│       └── main.py                    # Application entry point
+├── docs/                              # Documentation (feature specs, technical docs)
+├── tests/                             # Unit and integration tests
+├── pyproject.toml                     # Project configuration
+└── README.md                          # Backend overview
 ```
 
 ## Installation
 
 1. Clone the repository
-2. Create a virtual environment:
+2. Install dependencies and create a virtual environment automatically:
+
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+cd backend
+uv lock
+uv sync --dev
 ```
 
-3. Install dependencies:
-```bash
-# For development
-pip install -e ".[dev]"
+3. Set up your `.env` file (example):
 
-# For production
-pip install -e .
 ```
-
-4. Set up your `.env` file:
-```
-OPENAI_API_KEY=your_key_here
-OPENAI_MODEL=gpt-4
+OPENAI_API_KEY=your_openai_api_key
+OPENAI_MODEL=gpt-4o
 DATABASE_URL=mysql://user:password@localhost/books
 REDIS_HOST=localhost
 REDIS_PORT=6379
 REDIS_DB=0
 REDIS_PASSWORD=
 VECTOR_DB_PATH=./chromadb_data
+ELEVENLABS_API_KEY=your_elevenlabs_api_key
+X_API_KEY=your_backend_webhook_secret
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_API_KEY=your_langchain_api_key
+LANGCHAIN_PROJECT=ai-book-seeker
 ```
 
 ## Running the API
 
 ```bash
-# From the backend directory
-python -m ai_book_seeker.main
+uv run uvicorn ai_book_seeker.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+## Running Tests
+
+```bash
+uv run pytest tests/ -v
 ```
 
 ## Development
 
-- Format code with Black: `black .`
-- Sort imports with isort: `isort .`
-- Run linter: `flake8 .`
-- Run type checking: `mypy src/`
+- Format code with Black: `uv run black .`
+- Sort imports with isort: `uv run isort .`
+- Run linter: `uv run flake8 .`
+- Run type checking: `uv run mypy src/`
+
+## Security & Logging
+
+- The `/voice` endpoint and other webhooks require an `x_api_key` header for secure server-to-server calls (never exposed to frontend).
+- All API requests and responses are logged using structured logging for traceability and debugging.
+- Environment variables and secrets should never be committed to version control.
+
+## Modularity & Feature Addition
+
+- The backend is organized by feature (see `features/`), making it easy to add new tools or endpoints.
+- To add a new feature/tool:
+  1. Create a new folder in `features/` with `handler.py`, `schema.py`, and `tool.py`.
+  2. Register the tool in `services/tools.py`.
+  3. Add routes and schemas as needed in `api/routes/` and `api/schemas/`.
+  4. Add tests in `tests/unit/features/` or `tests/integration/`.
+
+## LangSmith Integration
+
+This project supports [LangSmith](https://docs.smith.langchain.com/) for tracing and debugging LangChain workflows.
+
+### Setup
+
+1. Install dependencies (already included):
+   ```sh
+   uv add langsmith
+   ```
+2. Obtain a LangSmith API key from your LangSmith account.
+3. Add the following environment variables to your `.env` file or deployment environment:
+   ```env
+   LANGCHAIN_TRACING_V2=true
+   LANGCHAIN_API_KEY=your-langsmith-api-key
+   # Optional: organize traces by project
+   LANGCHAIN_PROJECT=ai-book-seeker
+   ```
+4. Environment variables are loaded automatically via `dotenv` in `core/config.py`.
+
+### Usage
+
+- Tracing is enabled automatically for all LangChain workflows when the above variables are set.
+- Visit your [LangSmith dashboard](https://smith.langchain.com/) to view traces and debug LLM chains, agents, and tool calls.
+
+### Privacy & Best Practices
+
+- Only enable tracing in development or staging unless you have reviewed data privacy requirements for production.
+- For more details, see the [LangSmith documentation](https://docs.smith.langchain.com/).

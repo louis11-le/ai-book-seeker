@@ -18,19 +18,19 @@ export default function ChatInput({ onSendMessage, isLoading }: ChatInputProps) 
         }
     };
 
-    const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const handleChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
         setMessage(e.target.value);
     };
 
     return (
         <form onSubmit={handleSubmit} className="flex items-center gap-2">
-            <input
-                type="text"
+            <textarea
                 value={message}
                 onChange={handleChange}
-                placeholder="Ask about children's books..."
-                className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Ask about books..."
+                className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y min-h-[40px] max-h-40"
                 disabled={isLoading}
+                rows={5}
             />
             <button
                 type="submit"

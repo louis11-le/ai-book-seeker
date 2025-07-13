@@ -14,5 +14,6 @@ export interface BookType {
     genre: string;
     price: number;
     tags: string[];
+    quantity: number;
     explanation?: string;
 }

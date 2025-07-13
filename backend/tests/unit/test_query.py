@@ -2,81 +2,191 @@
 Unit tests for the query service module.
 """
 
-from unittest.mock import MagicMock, patch
-
 import pytest
-
-from ai_book_seeker.services.query import BookPreferences, get_recommendations
-from tests.helpers import create_test_books
-
-
-@patch("ai_book_seeker.services.query.get_book_recommendations")
-def test_get_recommendations_with_query_text(mock_get_book_recs):
-    """Test getting recommendations with query text."""
-    # Create test data
-    test_books = create_test_books(3)
-    mock_get_book_recs.return_value = test_books
-
-    # Create preferences with query text
-    preferences = BookPreferences(query_text="books about space travel", age="8-12", genre="science fiction")
-
-    # Call the function
-    results = get_recommendations(preferences)
-
-    # Check that the right function was called with the query text
-    mock_get_book_recs.assert_called_once()
-    assert preferences.query_text in mock_get_book_recs.call_args[0]
-
-    # Check that we got the expected results
-    assert len(results) == 3
-    assert results[0].title == test_books[0].title
-    assert results[1].author == test_books[1].author
-    assert results[2].genre == test_books[2].genre
+from ai_book_seeker.features.get_book_recommendation.schema import BookRecommendation
+from ai_book_seeker.services.query import search_books_by_criteria
 
 
-@patch("ai_book_seeker.services.query.get_book_recommendations")
-def test_get_recommendations_with_preferences_only(mock_get_book_recs):
-    """Test getting recommendations with just preferences, no query text."""
-    # Create test data
-    test_books = create_test_books(2)
-    mock_get_book_recs.return_value = test_books
+@pytest.fixture
+def mock_db(mocker):
+    """Fixture for a mocked SQLAlchemy session returning a customizable query result, with filtering logic."""
 
-    # Create preferences without query text
-    preferences = BookPreferences(age="teen", purpose="entertainment", budget="20", genre="fantasy")
+    def _make_db(books, age=None, purpose=None, budget=None, genre=None, query_text=None):
+        # Filtering logic to simulate DB behavior
+        filtered = books
+        if age is not None:
+            filtered = [
+                b
+                for b in filtered
+                if (b.from_age is None or b.from_age <= age) and (b.to_age is None or b.to_age >= age)
+            ]
+        if purpose is not None:
+            filtered = [b for b in filtered if b.purpose == purpose]
 
-    # Generate expected query text from preferences
-    expected_query = "fantasy books for teen readers for entertainment with budget $20"
+        if genre is not None:
+            filtered = [b for b in filtered if genre.lower() in b.genre.lower()]
 
-    # Call the function
-    results = get_recommendations(preferences)
+        if budget is not None:
+            filtered = [b for b in filtered if b.price <= budget]
 
-    # Check that the right function was called with a generated query
-    mock_get_book_recs.assert_called_once()
-    call_args = mock_get_book_recs.call_args[0][0]
-    assert "fantasy" in call_args
-    assert "teen" in call_args
-    assert "entertainment" in call_args
+        if query_text is not None:
+            filtered = [b for b in filtered if query_text.lower() in b.title.lower()]
 
-    # Check that we got the expected results
-    assert len(results) == 2
-    assert all(isinstance(book, object) for book in results)
+        mock_session = mocker.MagicMock()
+        mock_query = mocker.MagicMock()
+        mock_session.query.return_value = mock_query
+        mock_query.filter.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.all.return_value = filtered
+        return mock_session
+
+    return _make_db
 
 
-@patch("ai_book_seeker.services.query.get_book_recommendations")
-def test_get_recommendations_with_empty_preferences(mock_get_book_recs):
-    """Test getting recommendations with empty preferences."""
-    # Create test data - empty result
-    mock_get_book_recs.return_value = []
+@pytest.fixture
+def deterministic_books(book_factory):
+    """Fixture for a deterministic list of Book objects."""
+    return [
+        book_factory(
+            book_id=1,
+            title="Book A",
+            author="Author A",
+            genre="Fiction",
+            price=10.0,
+            from_age=8,
+            to_age=12,
+            purpose="learning",
+            tags="test,book",
+            quantity=1,
+        ),
+        book_factory(
+            book_id=2,
+            title="Book B",
+            author="Author B",
+            genre="Science",
+            price=15.0,
+            from_age=10,
+            to_age=14,
+            purpose="entertainment",
+            tags="test,book",
+            quantity=2,
+        ),
+        book_factory(
+            book_id=3,
+            title="Book C",
+            author="Author C",
+            genre="Fantasy",
+            price=20.0,
+            from_age=12,
+            to_age=16,
+            purpose="learning",
+            tags="test,book",
+            quantity=3,
+        ),
+    ]
 
-    # Create empty preferences
-    preferences = BookPreferences()
 
-    # Call the function
-    results = get_recommendations(preferences)
+@pytest.mark.parametrize(
+    "age, purpose, budget, genre, query_text, expected_count",
+    [
+        (8, None, None, "Fiction", "Book A", 1),
+        (10, "entertainment", 20.0, "Science", "Book B", 1),
+        (12, "learning", 25.0, "Fantasy", "Book C", 1),
+    ],
+)
+def test_search_books_by_criteria_normal(
+    mocker, mock_db, deterministic_books, age, purpose, budget, genre, query_text, expected_count
+):
+    """Test normal search scenarios with various criteria and deterministic data."""
+    db = mock_db(deterministic_books, age=age, purpose=purpose, budget=budget, genre=genre, query_text=query_text)
+    mocker.patch("ai_book_seeker.services.query.search_by_vector", return_value=[])
+    mocker.patch("ai_book_seeker.services.query.get_book_vector_matches", return_value=[])
+    mocker.patch(
+        "ai_book_seeker.services.query.generate_explanations",
+        return_value={b.id: f"Explanation for {b.title}" for b in deterministic_books},
+    )
+    results = search_books_by_criteria(
+        db,
+        age=age,
+        purpose=purpose,
+        budget=budget,
+        genre=genre,
+        query_text=query_text,
+    )
+    assert isinstance(results, list)
+    assert len(results) == expected_count
+    for book in results:
+        assert isinstance(book, BookRecommendation)
+        assert hasattr(book, "title")
+        assert hasattr(book, "author")
+        assert hasattr(book, "genre")
+        assert hasattr(book, "reason")
+        assert book.reason is not None and book.reason.startswith("Explanation for")
 
-    # Check that the function was still called
-    mock_get_book_recs.assert_called_once()
 
-    # Check that we got an empty list
+def test_search_books_by_criteria_empty_result(mocker, mock_db):
+    """Test that an empty result is returned when no books match."""
+    db = mock_db([])
+    mocker.patch("ai_book_seeker.services.query.search_by_vector", return_value=[])
+    mocker.patch("ai_book_seeker.services.query.get_book_vector_matches", return_value=[])
+    mocker.patch("ai_book_seeker.services.query.generate_explanations", return_value={})
+    results = search_books_by_criteria(db, age=99, purpose="unknown", budget=0.0, genre="none", query_text="no match")
     assert isinstance(results, list)
     assert len(results) == 0
+
+
+def test_search_books_by_criteria_missing_explanations(mocker, mock_db, deterministic_books):
+    """Test that books without explanations get a default explanation."""
+    db = mock_db(deterministic_books)
+    mocker.patch("ai_book_seeker.services.query.search_by_vector", return_value=[])
+    mocker.patch("ai_book_seeker.services.query.get_book_vector_matches", return_value=[])
+    # Only provide explanation for the first book
+    mocker.patch(
+        "ai_book_seeker.services.query.generate_explanations",
+        return_value={deterministic_books[0].id: "Custom explanation for Book A"},
+    )
+    results = search_books_by_criteria(db, age=8, purpose=None, budget=None, genre="Fiction", query_text="Book A")
+    assert results[0].reason == "Custom explanation for Book A"
+    for book in results[1:]:
+        assert book.reason is not None and book.reason.startswith("This book is")
+
+
+def test_search_books_by_criteria_invalid_input(mocker, mock_db, deterministic_books):
+    """Test that invalid input (negative age) is handled gracefully. Non-numeric budget is not tested due to type constraints."""
+    db = mock_db(deterministic_books)
+    mocker.patch("ai_book_seeker.services.query.search_by_vector", return_value=[])
+    mocker.patch("ai_book_seeker.services.query.get_book_vector_matches", return_value=[])
+    mocker.patch(
+        "ai_book_seeker.services.query.generate_explanations",
+        return_value={b.id: f"Explanation for {b.title}" for b in deterministic_books},
+    )
+    # Negative age
+    results = search_books_by_criteria(db, age=-5, purpose=None, budget=None, genre=None, query_text=None)
+    assert isinstance(results, list)
+    for book in results:
+        assert isinstance(book, BookRecommendation)
+
+
+def test_search_books_by_criteria_partial_match(mocker, mock_db, deterministic_books):
+    """Test that partial matches (e.g., genre substring) return correct books."""
+    db = mock_db(deterministic_books)
+    mocker.patch("ai_book_seeker.services.query.search_by_vector", return_value=[])
+    mocker.patch("ai_book_seeker.services.query.get_book_vector_matches", return_value=[])
+    mocker.patch(
+        "ai_book_seeker.services.query.generate_explanations",
+        return_value={b.id: f"Explanation for {b.title}" for b in deterministic_books},
+    )
+    # 'Fic' should match 'Fiction'
+    results = search_books_by_criteria(db, age=8, purpose=None, budget=None, genre="Fic", query_text=None)
+    assert any(book.genre == "Fiction" for book in results)
+
+
+def test_search_books_by_criteria_db_error(mocker):
+    """Test that an exception in the DB layer is handled gracefully."""
+    mock_session = mocker.MagicMock()
+    mock_session.query.side_effect = Exception("DB error")
+    mocker.patch("ai_book_seeker.services.query.search_by_vector", return_value=[])
+    mocker.patch("ai_book_seeker.services.query.get_book_vector_matches", return_value=[])
+    mocker.patch("ai_book_seeker.services.query.generate_explanations", return_value={})
+    with pytest.raises(Exception):
+        search_books_by_criteria(mock_session, age=8, purpose=None, budget=None, genre=None, query_text=None)
