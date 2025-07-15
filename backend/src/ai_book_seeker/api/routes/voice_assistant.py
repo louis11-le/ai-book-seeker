@@ -60,7 +60,10 @@ async def voice(request: VoiceRequest, fastapi_request: Request, x_api_key: str 
     logger.info(f'[VOICE] Incoming request: session_id={session_id}, message="{request.message}"')
     try:
         orchestrator = LangChainOrchestrator(fastapi_request.app)
-        result = await orchestrator.process_query(request.message, session_id, interface="voice")
+        result_chunks = [
+            chunk async for chunk in orchestrator.stream_query(request.message, session_id, interface="voice")
+        ]
+        result = result_chunks[-1] if result_chunks else ChatResponse(output="Sorry, no response generated.")
         logger.info(f"[VOICE] Outgoing response: session_id={session_id}, status=success")
         return VoiceResponse(session_id=session_id, response=result)
     except Exception as e:
