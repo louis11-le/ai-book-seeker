@@ -17,16 +17,18 @@ from ai_book_seeker.features.get_book_recommendation.schema import (
 )
 
 
-def register_tool() -> Dict[str, Any]:
-    """
-    Register the Book Recommendation tool for LangChain agent use.
-    Returns a dict with tool name, input schema, output schema, handler, and description.
-    Input and output validation are handled by Pydantic schemas directly.
-    """
+def register_tool(original_message: str = "") -> Dict[str, Any]:
+    async def handler_with_message(request: BookRecommendationSchema):
+        return await get_book_recommendation_handler(request, original_message)
+
     return {
         "name": "get_book_recommendation",
-        "description": "Get personalized book recommendations based on user preferences (age, purpose, budget, genre).",
+        "description": (
+            "Get personalized book recommendations based on user preferences (age or age range, purpose, budget, genre). "
+            "You can specify a single age or an age range (e.g., from 16 to 31). "
+            "Only fill the 'purpose' field if the user explicitly mentions a purpose (e.g., 'for learning' or 'for entertainment'). Otherwise, leave it blank."
+        ),
         "input_schema": BookRecommendationSchema,
         "output_schema": BookRecommendationOutputSchema,
-        "handler": get_book_recommendation_handler,
+        "handler": handler_with_message,
     }

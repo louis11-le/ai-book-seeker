@@ -20,6 +20,8 @@ logger = get_logger("query")
 def search_books_by_criteria(
     db: Session,
     age: Optional[int] = None,
+    age_from: Optional[int] = None,
+    age_to: Optional[int] = None,
     purpose: Optional[str] = None,
     budget: Optional[float] = None,
     genre: Optional[str] = None,
@@ -30,7 +32,9 @@ def search_books_by_criteria(
 
     Args:
         db: SQLAlchemy database session
-        age: Optional age of the reader
+        age: Optional age of the reader (single value)
+        age_from: Optional starting age if a range is specified
+        age_to: Optional ending age if a range is specified
         purpose: Optional purpose of the book (learning/entertainment)
         budget: Optional maximum price
         genre: Optional genre to filter by
@@ -40,9 +44,18 @@ def search_books_by_criteria(
         List of BookRecommendation models matching the criteria, with explanations
     """
     logger.info(
-        f"search_books_by_criteria called: age={age}, purpose={purpose}, budget={budget}, genre={genre}, query_text={query_text}"
+        "search_books_by_criteria called: age=%s, age_from=%s, age_to=%s, purpose=%s, budget=%s, genre=%s, query_text=%s",
+        age,
+        age_from,
+        age_to,
+        purpose,
+        budget,
+        genre,
+        query_text,
     )
-    preferences = BookPreferences(age=age, purpose=purpose, budget=budget, genre=genre, query_text=query_text)
+    preferences = BookPreferences(
+        age=age, age_from=age_from, age_to=age_to, purpose=purpose, budget=budget, genre=genre, query_text=query_text
+    )
     try:
         results = search_books(db, preferences)
         logger.info(f"search_books_by_criteria results: count={len(results)}, titles={[r.title for r in results]}")
@@ -71,7 +84,7 @@ def search_books(db: Session, preferences: BookPreferences) -> List[BookRecommen
 
     # If query text is provided, first try semantic search
     book_ids = []
-
+    logger.info(f"search_books preferences: {preferences}")
     if preferences.query_text:
         logger.info(f"Performing semantic search with query: {preferences.query_text}")
         book_ids = search_by_vector(preferences.query_text)
@@ -81,11 +94,6 @@ def search_books(db: Session, preferences: BookPreferences) -> List[BookRecommen
         query = query.filter(Book.id.in_(book_ids))
 
     query = _apply_filters(query, preferences)
-    logger.debug(
-        f"SQL filters: age={preferences.age}, purpose={preferences.purpose}, "
-        f"genre={preferences.genre}, budget={preferences.budget}, "
-        f"query_text={preferences.query_text}"
-    )
     max_suggestion_book = 3
     books = query.limit(max_suggestion_book).all()
     logger.info(f"SQL query returned {len(books)} books: {[b.title for b in books]}")
@@ -141,7 +149,19 @@ def _apply_filters(query, preferences):
     Returns:
         Filtered SQLAlchemy query object
     """
-    if preferences.age is not None:
+    # Prefer age_from/age_to, else age
+    if preferences.age_from is not None or preferences.age_to is not None:
+        if preferences.age_from is not None and preferences.age_to is not None:
+            # Book's age range must be entirely within the user-specified range
+            query = query.filter(
+                (Book.from_age.is_(None) | (Book.from_age >= preferences.age_from))
+                & (Book.to_age.is_(None) | (Book.to_age <= preferences.age_to))
+            )
+        elif preferences.age_from is not None:
+            query = query.filter(Book.from_age.is_(None) | (Book.from_age >= preferences.age_from))
+        elif preferences.age_to is not None:
+            query = query.filter(Book.to_age.is_(None) | (Book.to_age <= preferences.age_to))
+    elif preferences.age is not None:
         age = preferences.age
         query = query.filter(
             ((Book.from_age.is_(None) | (Book.from_age <= age)) & (Book.to_age.is_(None) | (Book.to_age >= age)))
@@ -154,6 +174,8 @@ def _apply_filters(query, preferences):
     if preferences.genre is not None:
         query = query.filter(Book.genre.like(f"%{preferences.genre.lower()}%"))
 
+    # Log the generated SQL query for debugging
+    logger.info(f"Generated SQL query: {str(query.statement.compile(compile_kwargs={'literal_binds': True}))}")
     return query
 
 
@@ -176,7 +198,10 @@ def _supplement_with_vector_search(books, preferences, db, max_suggestion_book):
     logger.debug("Supplementing with vector search due to insufficient SQL results")
     # Build search_query to match the content_to_embed format used in embeddings
     search_parts = []
-    if preferences.age is not None:
+    # Prefer age_from/age_to, else age
+    if preferences.age_from is not None and preferences.age_to is not None:
+        search_parts.append(f"Age range: {preferences.age_from}-{preferences.age_to}")
+    elif preferences.age is not None:
         search_parts.append(f"Age range: {preferences.age}")
 
     if preferences.purpose is not None:

@@ -19,7 +19,7 @@ from ai_book_seeker.features.search_faq.tool import register_tool as register_fa
 # TODO: from ai_book_seeker.features.purchase_book.tool import register_tool as register_purchase_book_tool
 
 
-def get_all_tools(app, interface: str = "chat") -> List[Dict[str, Any]]:
+def get_all_tools(app, interface: str = "chat", original_message: str = "") -> List[Dict[str, Any]]:
     """
     Return a list of registered tools for the LangChain agent, filtered by interface type.
     The app instance is passed to each tool registration for dependency injection.
@@ -27,7 +27,7 @@ def get_all_tools(app, interface: str = "chat") -> List[Dict[str, Any]]:
     """
     all_tools = {
         "search_faq": register_faq_tool(app),
-        "get_book_recommendation": register_book_recommendation_tool(),
+        "get_book_recommendation": register_book_recommendation_tool(original_message),
         # "purchase_book": register_purchase_book_tool(app),
     }
     enabled_tool_names = INTERFACE_TOOL_MAP.get(interface, [])

@@ -61,16 +61,16 @@ The system is organized into 4 sequential agents:
 
 The feature extracts the following metadata fields:
 
-| Field         | Type    | Description                                                |
-| :------------ | :------ | :--------------------------------------------------------- |
-| `title`       | String  | Book title                                                 |
-| `author`      | String  | Book author                                                |
-| `description` | String  | 2-4 line summary of the book                               |
-| `from_age`    | Integer | Minimum recommended age (null if not applicable)           |
-| `to_age`      | Integer | Maximum recommended age (null if not applicable)           |
-| `purpose`     | String  | Purpose of the book (e.g., "Entertainment", "Educational") |
-| `genre`       | String  | Book genre (e.g., "Fantasy", "Biography")                  |
-| `tags`        | List    | List of keywords or themes                                 |
+| Field         | Type    | Description                                                                                                                                                                                           |
+| :------------ | :------ | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`       | String  | Book title                                                                                                                                                                                            |
+| `author`      | String  | Book author                                                                                                                                                                                           |
+| `description` | String  | 2-4 line summary of the book                                                                                                                                                                          |
+| `from_age`    | Integer | Minimum recommended age (null if not applicable)                                                                                                                                                      |
+| `to_age`      | Integer | Maximum recommended age (null if not applicable)                                                                                                                                                      |
+| `purpose`     | String  | Purpose of the book (e.g., "Entertainment", "Educational"). Only fill if explicitly mentioned in the book's content (e.g., introduction, preface, or marketing text); otherwise, leave blank or null. |
+| `genre`       | String  | Book genre (e.g., "Fantasy", "Biography")                                                                                                                                                             |
+| `tags`        | List    | List of keywords or themes                                                                                                                                                                            |
 
 ---
 

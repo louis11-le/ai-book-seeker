@@ -35,6 +35,8 @@ class BookPreferences(BaseModel):
     """Model representing user preferences for book recommendations"""
 
     age: Optional[int] = None
+    age_from: Optional[int] = None
+    age_to: Optional[int] = None
     purpose: Optional[str] = None
     budget: Optional[float] = None
     genre: Optional[str] = None
@@ -123,11 +125,19 @@ def _create_prompt(books: List[Book], preferences: BookPreferences) -> str:
     base_prompt = get_explainer_prompt()
 
     # Add book details and preferences to the prompt
+    # Prefer age_from/age_to, else age, else 'Any'
+    if preferences.age_from is not None and preferences.age_to is not None:
+        age_str = f"{preferences.age_from}-{preferences.age_to}"
+    elif preferences.age is not None:
+        age_str = str(preferences.age)
+    else:
+        age_str = "Any"
+
     prompt = f"""
     {base_prompt}
 
     USER PREFERENCES:
-    - Age: {preferences.age or 'Any'}
+    - Age: {age_str}
     - Purpose: {preferences.purpose or 'Any'}
     - Budget: ${preferences.budget or 'Any'}
     - Genre: {preferences.genre or 'Any'}
