@@ -83,8 +83,9 @@ export default function Home() {
                     if (line.trim()) {
                         try {
                             const data = JSON.parse(line);
-                            // Update sessionId if present
-                            if (data.session_id) newSessionId = data.session_id;
+                            if (data.session_id) {
+                                newSessionId = data.session_id
+                            }
                             // Append streamed assistant message
                             if (data.response && data.response.output !== undefined) {
                                 assistantMessage += data.response.output;
@@ -103,19 +104,20 @@ export default function Home() {
                                     });
                                 }
                             }
-                            // Set books if data is present
-                            // console.log(data);
-                            // if (data.data && Array.isArray(data.data)) {
-                            //     setBooks(data.data);
-                            // }
+
+                            if (data.response && Array.isArray(data.response.data)) {
+                                setBooks(data.response.data);
+                            }
                         } catch (e) {
                             // Ignore JSON parse errors for incomplete lines
                         }
                     }
                 }
             }
-            // Persist sessionId if updated
-            if (newSessionId) setSessionId(newSessionId);
+
+            if (newSessionId) {
+                setSessionId(newSessionId)
+            }
         } catch (error) {
             console.error('Error sending message:', error);
             setMessages(prev => [...prev, {
@@ -151,8 +153,7 @@ export default function Home() {
                     </div>
                     <ChatInput onSendMessage={handleSendMessage} isLoading={isLoading} />
                 </div>
-
-                {/* <div className="bg-white rounded-lg shadow-md p-4 overflow-y-auto">
+                <div className="bg-white rounded-lg shadow-md p-4 overflow-y-auto">
                     <h2 className="font-semibold text-lg mb-4">Book Recommendations</h2>
                     {books.length > 0 ? (
                         <ul className="space-y-4">
@@ -182,7 +183,7 @@ export default function Home() {
                     ) : (
                         <p className="text-gray-500 italic">Book recommendations will appear here.</p>
                     )}
-                </div> */}
+                </div>
             </div>
             {/* ElevenLabs Voice Assistant Widget */}
             <div id="elevenlabs-widget" dangerouslySetInnerHTML={{ __html: `<elevenlabs-convai agent-id=\"agent_01jzafryw2fmpbg8pfm6q1apc1\"></elevenlabs-convai>` }} />

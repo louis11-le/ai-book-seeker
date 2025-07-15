@@ -6,6 +6,7 @@ LangChain Orchestrator: Agent Integration
 This module sets up the LangChain agent and integrates all modular tools for unified query processing.
 It is designed for extensibility, onboarding, and auditability.
 """
+
 import os
 from typing import AsyncGenerator, Dict
 
@@ -101,9 +102,7 @@ class LangChainOrchestrator:
             async def tool_func(**kwargs):
                 try:
                     validated = input_schema(**kwargs)
-
                     result = await handler(validated)
-
                     if not isinstance(result, output_schema):
                         result = (
                             output_schema(**result) if isinstance(result, dict) else output_schema(text=str(result))
@@ -135,54 +134,6 @@ class LangChainOrchestrator:
 
         return tools
 
-    async def process_query(self, query: str, session_id: str, interface: str = "chat") -> ChatResponse:
-        """
-        Process a user query using the LangChain agent.
-        Args:
-            query (str): The user's query.
-            session_id (str): The session identifier.
-            interface (str): The interface type (e.g., 'chat', 'voice').
-        Returns:
-            ChatResponse: The agent's response with output text.
-        """
-        try:
-            memory = self._get_memory(session_id)
-            # Get tools for this interface
-            tools = self._convert_tools(get_all_tools(self.app, interface))
-            agent_executor = AgentExecutor(
-                agent=self.agent,
-                tools=tools,
-                memory=memory,
-                verbose=True,
-            )
-            logger.info("query: %s", query)
-            response = await agent_executor.ainvoke({"input": query})
-
-            # --- Tool-agnostic output extraction (LangChain best practices) ---
-            output_text = None
-            if isinstance(response, dict):
-                # Prefer 'output' key if present
-                if "output" in response:
-                    output_text = response["output"]
-                # Next, try 'result' key
-                elif "result" in response:
-                    output_text = response["result"]
-                # If only one key, use its value
-                elif len(response) == 1:
-                    output_text = list(response.values())[0]
-
-            if output_text is None:
-                # If response is a string, use it
-                if isinstance(response, str):
-                    output_text = response
-                else:
-                    output_text = str(response)
-
-            return ChatResponse(output=output_text)
-        except Exception as e:
-            logger.error(f"agent_error: error={e}", exc_info=True)
-            return ChatResponse(output="Sorry, there was an error processing your request. Please try again.")
-
     async def stream_query(
         self, query: str, session_id: str, interface: str = "chat"
     ) -> AsyncGenerator[ChatResponse, None]:
@@ -197,64 +148,61 @@ class LangChainOrchestrator:
         """
         try:
             memory = self._get_memory(session_id)
-            tools = self._convert_tools(get_all_tools(self.app, interface))
+            tools = self._convert_tools(get_all_tools(self.app, interface, original_message=query))
             agent_executor = AgentExecutor(
                 agent=self.agent,
                 tools=tools,
                 memory=memory,
                 verbose=True,
+                return_intermediate_steps=True,
             )
             final_output = ""
+            final_data = None
             step_count = 0
-
+            logger.info(f"Orginal query: {query}")
             logger.info("=== STARTING STREAM QUERY ===")
-
             async for step in agent_executor.astream({"input": query}):
                 step_count += 1
                 logger.info(f"=== STEP {step_count} ===")
+                # logger.info(f"step: {json.dumps(step, default=str)}")
+                # logger.info(f"Type of step: {type(step)}")
+                # logger.info(f"Step keys: {list(step.keys())}")
 
                 output_text = None
-                if isinstance(step, dict):
-                    if "output" in step:
-                        output_text = step["output"]
-                    elif "result" in step:
-                        output_text = step["result"]
-                    elif len(step) == 1:
-                        output_text = list(step.values())[0]
+                data_field = None
 
-                if output_text is None:
-                    if isinstance(step, str):
-                        output_text = step
-                    else:
-                        output_text = str(step)
+                if "output" in step:
+                    logger.info("Branch: output at top level")
+                    output_text = step["output"]
+                elif "steps" in step:
+                    logger.info("Branch: steps (AgentStep list)")
+                    for agent_step in step["steps"]:
+                        # logger.info(f"Type of agent_step: {type(agent_step)}")
+                        # logger.info(f"agent_step: {agent_step}")
+                        tool_name = getattr(getattr(agent_step, "action", None), "tool", None)
+                        # logger.info(f"tool_name: {tool_name}")
 
-                # logger.debug(f"Step {step_count} output_text type: {type(output_text)}")
-                # logger.debug(f"Step {step_count} output_text preview: {str(output_text)[:200]}...")
+                        obs = getattr(agent_step, "observation", None)
+                        # logger.info(f"Type of obs: {type(obs)}")
+                        # logger.info(f"obs: {obs}")
+                        if isinstance(obs, dict):
+                            output_text = obs.get("text")
+                            if tool_name == "get_book_recommendation":
+                                data_field = obs.get("data")
+                        elif obs is not None:
+                            output_text = str(obs)
 
-                # Only yield if this is a meaningful, user-facing answer (not intermediate/tool info)
-                # Heuristic: Only yield if output_text is a plain string (not a dict or Python object string)
-                if (
-                    isinstance(output_text, str)
-                    and not output_text.strip().startswith("{")
-                    and output_text.strip() != ""
-                ):
-                    # logger.debug(f"Step {step_count}: FOUND USER-FACING OUTPUT")
+                if output_text and isinstance(output_text, str) and output_text.strip():
                     final_output = output_text
-                    # logger.debug(f"Step {step_count}: final_output set to: {final_output}")
-                else:
-                    # Log all intermediate/tool info
-                    # logger.info(f"Step {step_count}: agent_intermediate_step: {output_text}")
-                    pass
+                    if data_field is not None:
+                        final_data = data_field
 
             logger.info("=== AGENT LOOP COMPLETED ===")
             logger.info(f"Total steps processed: {step_count}")
             logger.info(f"Final output length: {len(final_output)}")
-            # logger.debug(f"Final output: {final_output}")
-
-            # Production: yield the final output as a single chunk if available
             if final_output.strip():
                 logger.info("Yielding final output as a single chunk.")
-                yield ChatResponse(output=final_output)
+                yield ChatResponse(output=final_output, data=final_data)
             else:
                 logger.info("=== NO FINAL OUTPUT, SENDING FALLBACK ===")
                 yield ChatResponse(output="Sorry, no meaningful answer was generated.")

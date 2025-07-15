@@ -41,7 +41,7 @@ metadata_summarizer:
       * Author: Check author bylines, copyright pages, and acknowledgments
       * Description: Extract from preface, introduction, or back cover text
       * Age Range: Look for age recommendations, target audience mentions
-      * Purpose: Identify from introduction, preface, or marketing text
+      * Purpose: Identify from introduction, preface, or marketing text. Only extract if explicitly mentioned; otherwise, leave blank or null.
       * Genre: Determine from content style, subject matter, and marketing text
       * Tags: Extract relevant keywords from content and structure
     - Extracting additional metadata:

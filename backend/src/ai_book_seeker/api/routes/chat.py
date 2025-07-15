@@ -7,7 +7,7 @@ from ai_book_seeker.api.schemas.chat import (
 )
 from ai_book_seeker.core.logging import get_logger
 from ai_book_seeker.services.langchain_orchestrator import LangChainOrchestrator
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 router = APIRouter()
@@ -22,21 +22,6 @@ def get_orchestrator(app):
     return app.state.orchestrator
 
 
-@router.post("/chat", response_model=ChatSessionResponse)
-async def chat(request: ChatRequest, fastapi_request: Request):
-    """Chat endpoint powered by LangChainOrchestrator."""
-    try:
-        logger.info(f"Chat request received: {request.session_id}")
-        session_id = request.session_id or str(uuid4())
-        logger.info(f"Session ID: {session_id}")
-        orchestrator = get_orchestrator(fastapi_request.app)
-        result = await orchestrator.process_query(request.message, session_id, interface="chat")
-        return ChatSessionResponse(session_id=session_id, response=result)
-    except Exception as e:
-        logger.error(f"Error processing chat request: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error") from e
-
-
 @router.post("/chat/stream")
 async def chat_stream(request: ChatRequest, fastapi_request: Request):
     """Streaming chat endpoint powered by LangChainOrchestrator."""
@@ -49,7 +34,7 @@ async def chat_stream(request: ChatRequest, fastapi_request: Request):
             async for chunk in orchestrator.stream_query(request.message, session_id, interface="chat"):
                 # Use Pydantic schema for strict consistency
                 yield ChatSessionResponse(
-                    session_id=session_id, response=ChatResponse(output=chunk.output)
+                    session_id=session_id, response=ChatResponse(output=chunk.output, data=chunk.data)
                 ).model_dump_json() + "\n"
 
         return StreamingResponse(event_generator(), media_type="application/json")

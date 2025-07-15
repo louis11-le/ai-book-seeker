@@ -8,13 +8,17 @@ class BookRecommendationSchema(BaseModel):
     Schema for the get_book_recommendation tool.
 
     Attributes:
-        age (Optional[int]): The age of the reader.
+        age (Optional[int]): The age of the reader (single value, for backward compatibility).
+        age_from (Optional[int]): The starting age if a range or comparison is specified.
+        age_to (Optional[int]): The ending age if a range or comparison is specified.
         purpose (Optional[str]): The purpose of the book (learning, entertainment).
         budget (Optional[float]): The budget for buying books.
         genre (Optional[str]): The preferred genre (optional).
     """
 
-    age: Optional[int] = Field(None, description="The age of the reader")
+    age: Optional[int] = Field(None, description="The age of the reader (single value, for backward compatibility)")
+    age_from: Optional[int] = Field(None, description="The starting age if a range or comparison is specified")
+    age_to: Optional[int] = Field(None, description="The ending age if a range or comparison is specified")
     purpose: Optional[str] = Field(None, description="The purpose of the book (learning, entertainment)")
     budget: Optional[float] = Field(None, description="The budget for buying books")
     genre: Optional[str] = Field(None, description="The preferred genre (optional)")
