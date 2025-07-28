@@ -1,5 +1,7 @@
 """
-Unit tests for the query service module.
+Unit tests for the query service.
+
+This module tests the book search functionality with various criteria.
 """
 
 import pytest
@@ -9,17 +11,15 @@ from ai_book_seeker.services.query import search_books_by_criteria
 
 @pytest.fixture
 def mock_db(mocker):
-    """Fixture for a mocked SQLAlchemy session returning a customizable query result, with filtering logic."""
+    """Fixture to create a mock database session with filtering logic."""
 
     def _make_db(books, age=None, purpose=None, budget=None, genre=None, query_text=None):
         # Filtering logic to simulate DB behavior
-        filtered = books
+        filtered = books.copy()
+
         if age is not None:
-            filtered = [
-                b
-                for b in filtered
-                if (b.from_age is None or b.from_age <= age) and (b.to_age is None or b.to_age >= age)
-            ]
+            filtered = [b for b in filtered if b.from_age <= age <= b.to_age]
+
         if purpose is not None:
             filtered = [b for b in filtered if b.purpose == purpose]
 
@@ -99,14 +99,18 @@ def test_search_books_by_criteria_normal(
 ):
     """Test normal search scenarios with various criteria and deterministic data."""
     db = mock_db(deterministic_books, age=age, purpose=purpose, budget=budget, genre=genre, query_text=query_text)
-    mocker.patch("ai_book_seeker.services.query.search_by_vector", return_value=[])
-    mocker.patch("ai_book_seeker.services.query.get_book_vector_matches", return_value=[])
+    mocker.patch("ai_book_seeker.features.vector_search.logic.get_book_vector_matches", return_value=[])
     mocker.patch(
         "ai_book_seeker.services.query.generate_explanations",
         return_value={b.id: f"Explanation for {b.title}" for b in deterministic_books},
     )
+    # Create a mock chromadb_service
+    mock_chromadb_service = mocker.MagicMock()
+    mock_chromadb_service.settings = mocker.MagicMock()
+    mock_chromadb_service.settings.batch_size = 3
     results = search_books_by_criteria(
         db,
+        mock_chromadb_service,
         age=age,
         purpose=purpose,
         budget=budget,
@@ -127,10 +131,15 @@ def test_search_books_by_criteria_normal(
 def test_search_books_by_criteria_empty_result(mocker, mock_db):
     """Test that an empty result is returned when no books match."""
     db = mock_db([])
-    mocker.patch("ai_book_seeker.services.query.search_by_vector", return_value=[])
-    mocker.patch("ai_book_seeker.services.query.get_book_vector_matches", return_value=[])
+    mocker.patch("ai_book_seeker.features.vector_search.logic.get_book_vector_matches", return_value=[])
     mocker.patch("ai_book_seeker.services.query.generate_explanations", return_value={})
-    results = search_books_by_criteria(db, age=99, purpose="unknown", budget=0.0, genre="none", query_text="no match")
+    # Create a mock chromadb_service
+    mock_chromadb_service = mocker.MagicMock()
+    mock_chromadb_service.settings = mocker.MagicMock()
+    mock_chromadb_service.settings.batch_size = 3
+    results = search_books_by_criteria(
+        db, mock_chromadb_service, age=99, purpose="unknown", budget=0.0, genre="none", query_text="no match"
+    )
     assert isinstance(results, list)
     assert len(results) == 0
 
@@ -138,14 +147,19 @@ def test_search_books_by_criteria_empty_result(mocker, mock_db):
 def test_search_books_by_criteria_missing_explanations(mocker, mock_db, deterministic_books):
     """Test that books without explanations get a default explanation."""
     db = mock_db(deterministic_books)
-    mocker.patch("ai_book_seeker.services.query.search_by_vector", return_value=[])
-    mocker.patch("ai_book_seeker.services.query.get_book_vector_matches", return_value=[])
+    mocker.patch("ai_book_seeker.features.vector_search.logic.get_book_vector_matches", return_value=[])
     # Only provide explanation for the first book
     mocker.patch(
         "ai_book_seeker.services.query.generate_explanations",
         return_value={deterministic_books[0].id: "Custom explanation for Book A"},
     )
-    results = search_books_by_criteria(db, age=8, purpose=None, budget=None, genre="Fiction", query_text="Book A")
+    # Create a mock chromadb_service
+    mock_chromadb_service = mocker.MagicMock()
+    mock_chromadb_service.settings = mocker.MagicMock()
+    mock_chromadb_service.settings.batch_size = 3
+    results = search_books_by_criteria(
+        db, mock_chromadb_service, age=8, purpose=None, budget=None, genre="Fiction", query_text="Book A"
+    )
     assert results[0].reason == "Custom explanation for Book A"
     for book in results[1:]:
         assert book.reason is not None and book.reason.startswith("This book is")
@@ -154,14 +168,19 @@ def test_search_books_by_criteria_missing_explanations(mocker, mock_db, determin
 def test_search_books_by_criteria_invalid_input(mocker, mock_db, deterministic_books):
     """Test that invalid input (negative age) is handled gracefully. Non-numeric budget is not tested due to type constraints."""
     db = mock_db(deterministic_books)
-    mocker.patch("ai_book_seeker.services.query.search_by_vector", return_value=[])
-    mocker.patch("ai_book_seeker.services.query.get_book_vector_matches", return_value=[])
+    mocker.patch("ai_book_seeker.features.vector_search.logic.get_book_vector_matches", return_value=[])
     mocker.patch(
         "ai_book_seeker.services.query.generate_explanations",
         return_value={b.id: f"Explanation for {b.title}" for b in deterministic_books},
     )
+    # Create a mock chromadb_service
+    mock_chromadb_service = mocker.MagicMock()
+    mock_chromadb_service.settings = mocker.MagicMock()
+    mock_chromadb_service.settings.batch_size = 3
     # Negative age
-    results = search_books_by_criteria(db, age=-5, purpose=None, budget=None, genre=None, query_text=None)
+    results = search_books_by_criteria(
+        db, mock_chromadb_service, age=-5, purpose=None, budget=None, genre=None, query_text=None
+    )
     assert isinstance(results, list)
     for book in results:
         assert isinstance(book, BookRecommendation)
@@ -170,14 +189,19 @@ def test_search_books_by_criteria_invalid_input(mocker, mock_db, deterministic_b
 def test_search_books_by_criteria_partial_match(mocker, mock_db, deterministic_books):
     """Test that partial matches (e.g., genre substring) return correct books."""
     db = mock_db(deterministic_books)
-    mocker.patch("ai_book_seeker.services.query.search_by_vector", return_value=[])
-    mocker.patch("ai_book_seeker.services.query.get_book_vector_matches", return_value=[])
+    mocker.patch("ai_book_seeker.features.vector_search.logic.get_book_vector_matches", return_value=[])
     mocker.patch(
         "ai_book_seeker.services.query.generate_explanations",
         return_value={b.id: f"Explanation for {b.title}" for b in deterministic_books},
     )
+    # Create a mock chromadb_service
+    mock_chromadb_service = mocker.MagicMock()
+    mock_chromadb_service.settings = mocker.MagicMock()
+    mock_chromadb_service.settings.batch_size = 3
     # 'Fic' should match 'Fiction'
-    results = search_books_by_criteria(db, age=8, purpose=None, budget=None, genre="Fic", query_text=None)
+    results = search_books_by_criteria(
+        db, mock_chromadb_service, age=8, purpose=None, budget=None, genre="Fic", query_text=None
+    )
     assert any(book.genre == "Fiction" for book in results)
 
 
@@ -185,8 +209,13 @@ def test_search_books_by_criteria_db_error(mocker):
     """Test that an exception in the DB layer is handled gracefully."""
     mock_session = mocker.MagicMock()
     mock_session.query.side_effect = Exception("DB error")
-    mocker.patch("ai_book_seeker.services.query.search_by_vector", return_value=[])
-    mocker.patch("ai_book_seeker.services.query.get_book_vector_matches", return_value=[])
+    mocker.patch("ai_book_seeker.features.vector_search.logic.get_book_vector_matches", return_value=[])
     mocker.patch("ai_book_seeker.services.query.generate_explanations", return_value={})
-    with pytest.raises(Exception):
-        search_books_by_criteria(mock_session, age=8, purpose=None, budget=None, genre=None, query_text=None)
+    # Create a mock chromadb_service
+    mock_chromadb_service = mocker.MagicMock()
+    mock_chromadb_service.settings = mocker.MagicMock()
+    mock_chromadb_service.settings.batch_size = 3
+    results = search_books_by_criteria(
+        mock_session, mock_chromadb_service, age=8, purpose=None, budget=None, genre=None, query_text=None
+    )
+    assert results == []

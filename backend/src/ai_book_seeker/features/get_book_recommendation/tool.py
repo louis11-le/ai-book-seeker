@@ -8,6 +8,7 @@ It is designed for modular, feature-based integration with the LangChain agent.
 
 from typing import Any, Dict
 
+from ai_book_seeker.core.config import AppSettings
 from ai_book_seeker.features.get_book_recommendation.handler import (
     get_book_recommendation_handler,
 )
@@ -17,9 +18,11 @@ from ai_book_seeker.features.get_book_recommendation.schema import (
 )
 
 
-def register_tool(original_message: str = "") -> Dict[str, Any]:
+def register_tool(original_message: str = "", settings: AppSettings | None = None) -> Dict[str, Any]:
     async def handler_with_message(request: BookRecommendationSchema):
-        return await get_book_recommendation_handler(request, original_message)
+        if settings is None:
+            raise ValueError("Settings are required for database operations")
+        return await get_book_recommendation_handler(request, original_message, settings)
 
     return {
         "name": "get_book_recommendation",

@@ -22,7 +22,7 @@ def validate_metadata(raw: Dict[str, Any]) -> MetadataOutput:
     try:
         return MetadataOutput.model_validate(raw)
     except Exception as e:
-        logger.error(f"Metadata validation failed: {e}")
+        logger.error(f"Metadata validation failed: {e}", exc_info=True)
         raise
 
 
@@ -65,9 +65,9 @@ def insert_book_metadata(db: Session, metadata: Union[Dict[str, Any], MetadataOu
         logger.info(f"Inserted book metadata successfully with id: {book.id}")
         return book.id
     except Exception as e:
-        logger.error(f"Failed to insert metadata: {e}")
+        logger.error(f"Failed to insert metadata: {e}", exc_info=True)
         try:
             db.rollback()
         except Exception as rollback_error:
-            logger.error(f"Failed to rollback transaction: {rollback_error}")
+            logger.error(f"Failed to rollback transaction: {rollback_error}", exc_info=True)
         raise  # Re-raise the exception to be handled by the caller
