@@ -1,26 +1,48 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import ChatInput from '../components/ChatInput';
 import ChatMessages from '../components/ChatMessages';
+import ElevenLabsWidget from '../components/ElevenLabsWidget';
 import { BookType, MessageType } from '../types';
-import Script from "next/script";
+
+// Types for better type safety
+interface ServerResponse {
+    session_id?: string;
+    response?: {
+        output?: string;
+        data?: {
+            node?: string;
+            agent_results?: {
+                faq?: any;
+            };
+        } | BookType[];
+    };
+}
+
+interface ResponseData {
+    node?: string;
+    agent_results?: {
+        faq?: any;
+    };
+}
+
+const WELCOME_MESSAGE = 'Welcome to AI Book Seeker! Ask me about books for specific ages, interests, or learning needs.';
 
 export default function Home() {
     const [messages, setMessages] = useState<MessageType[]>([
-        {
-            role: 'system',
-            content: 'Welcome to AI Book Seeker! Ask me about books for specific ages, interests, or learning needs.'
-        }
+        { role: 'system', content: WELCOME_MESSAGE }
     ]);
 
-    // Initialize sessionId from localStorage if available
     const [sessionId, setSessionIdState] = useState<string | null>(() => {
         if (typeof window !== 'undefined') {
             return localStorage.getItem('chatSessionId');
         }
         return null;
     });
+
+    const [isLoading, setIsLoading] = useState(false);
+    const [books, setBooks] = useState<BookType[]>([]);
 
     const setSessionId = (id: string | null) => {
         setSessionIdState(id);
@@ -30,30 +52,40 @@ export default function Home() {
             localStorage.removeItem('chatSessionId');
         }
     };
-    const [isLoading, setIsLoading] = useState(false);
-    const [books, setBooks] = useState<BookType[]>([]);
 
-    // Optional: Clear session handler
     const handleResetSession = () => {
         setSessionId(null);
-        setMessages([
-            {
-                role: 'system',
-                content: "Welcome to AI Book Seeker! Ask me about books for specific ages, interests, or learning needs."
-            }
-        ]);
+        setMessages([{ role: 'system', content: WELCOME_MESSAGE }]);
         setBooks([]);
+    };
+
+    const hasMeaningfulContent = (data: ServerResponse): boolean => {
+        const responseData = data.response?.data;
+
+        // Primary check: Final formatted response from the backend
+        if (responseData && !Array.isArray(responseData) && responseData.node === 'format_response') {
+            return true;
+        }
+
+        // Fallback checks for legacy or edge cases
+        if (responseData && Array.isArray(responseData) && responseData.length > 0) {
+            return true;
+        }
+
+        if (responseData && !Array.isArray(responseData) && responseData.agent_results?.faq) {
+            return true;
+        }
+
+        return false;
     };
 
     const handleSendMessage = async (message: string) => {
         if (!message.trim()) return;
 
-        // Add user message to chat
         setMessages(prev => [...prev, { role: 'user', content: message }]);
         setIsLoading(true);
 
         try {
-            // Use environment variable for API base URL (production ready)
             const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || '';
             const response = await fetch(`${apiBase}/api/chat/stream`, {
                 method: 'POST',
@@ -75,26 +107,27 @@ export default function Home() {
                 if (done) break;
                 buffer += decoder.decode(value, { stream: true });
 
-                // Split on newlines (each line is a JSON object)
-                let lines = buffer.split('\n');
-                buffer = lines.pop()!; // Last item may be incomplete
+                const lines = buffer.split('\n');
+                buffer = lines.pop()!;
 
                 for (const line of lines) {
                     if (line.trim()) {
                         try {
-                            const data = JSON.parse(line);
+                            const data: ServerResponse = JSON.parse(line);
+
                             if (data.session_id) {
-                                newSessionId = data.session_id
+                                newSessionId = data.session_id;
                             }
-                            // Append streamed assistant message
-                            if (data.response && data.response.output !== undefined) {
-                                assistantMessage += data.response.output;
+
+                            if (data.response && data.response.output !== undefined && hasMeaningfulContent(data)) {
+                                const output = data.response.output;
+                                assistantMessage += output;
+
                                 if (isFirstChunk) {
                                     setMessages(prev => [...prev, { role: 'assistant' as const, content: assistantMessage }]);
                                     isFirstChunk = false;
                                 } else {
                                     setMessages(prev => {
-                                        // Update the last assistant message
                                         const updated = [...prev];
                                         const lastIdx = updated.length - 1;
                                         if (updated[lastIdx]?.role === 'assistant') {
@@ -105,6 +138,20 @@ export default function Home() {
                                 }
                             }
 
+                            // Book recommendations from book_recommendation_tool node
+                            const responseData = data.response?.data;
+                            if (
+                                responseData &&
+                                typeof responseData === "object" &&
+                                !Array.isArray(responseData) &&
+                                (responseData as any).node === "book_recommendation_tool" &&
+                                (responseData as any).update?.agent_results?.book_recommendation?.data &&
+                                Array.isArray((responseData as any).update.agent_results.book_recommendation.data)
+                            ) {
+                                setBooks((responseData as any).update.agent_results.book_recommendation.data);
+                            }
+
+                            // Legacy/other cases
                             if (data.response && Array.isArray(data.response.data)) {
                                 setBooks(data.response.data);
                             }
@@ -116,7 +163,7 @@ export default function Home() {
             }
 
             if (newSessionId) {
-                setSessionId(newSessionId)
+                setSessionId(newSessionId);
             }
         } catch (error) {
             console.error('Error sending message:', error);
@@ -137,7 +184,6 @@ export default function Home() {
                     Ask about books by age, interests, and budget. For example:
                     "I need books for my 6-year-old who is learning to read. My budget is around $50."
                 </p>
-                {/* Reset Session Button */}
                 <button
                     className="mt-4 px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
                     onClick={handleResetSession}
@@ -185,9 +231,7 @@ export default function Home() {
                     )}
                 </div>
             </div>
-            {/* ElevenLabs Voice Assistant Widget */}
-            <div id="elevenlabs-widget" dangerouslySetInnerHTML={{ __html: `<elevenlabs-convai agent-id=\"agent_01jzafryw2fmpbg8pfm6q1apc1\"></elevenlabs-convai>` }} />
-            <Script src="https://unpkg.com/@elevenlabs/convai-widget-embed" async strategy="afterInteractive" />
+            <ElevenLabsWidget />
         </div>
     );
 }
