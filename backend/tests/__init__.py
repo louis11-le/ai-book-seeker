@@ -1,1 +1,1 @@
-# Orchestrator tests are located in tests/langchain_orchestrator/
+# Orchestrator tests are located in tests/workflows/ (LangGraph orchestrator)

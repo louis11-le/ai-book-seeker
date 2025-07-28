@@ -3,251 +3,292 @@ Vector Database Module for AI Book Seeker
 
 This module handles the vector database operations for storing and retrieving book embeddings.
 It uses ChromaDB as the vector store and OpenAI's embeddings for vector generation.
+All configuration is accessed via the centralized AppSettings config object.
 """
 
-import os
-from typing import List
+from typing import Any, List
 
-import chromadb
-import numpy as np
-from ai_book_seeker.core.config import (
-    CHROMA_COLLECTION_NAME,
-    CHROMA_PERSIST_DIRECTORY,
-    OPENAI_API_KEY,
-)
+from ai_book_seeker.core.config import AppSettings
 from ai_book_seeker.core.logging import get_logger
 from ai_book_seeker.db.models import Book
-from dotenv import load_dotenv
+from langchain_core.documents import Document
 from openai import OpenAI
 from sqlalchemy.orm import Session
-
-# Load environment variables
-load_dotenv()
 
 # Set up logging
 logger = get_logger("vectordb")
 
-# OpenAI client for embeddings
-client = OpenAI(api_key=OPENAI_API_KEY)
-
-# Create persistence directory if it doesn't exist
-if not os.path.exists(CHROMA_PERSIST_DIRECTORY):
-    os.makedirs(CHROMA_PERSIST_DIRECTORY)
-    logger.info(f"Created ChromaDB persistence directory: {CHROMA_PERSIST_DIRECTORY}")
-
-# Initialize ChromaDB with persistence
-chroma_client = chromadb.PersistentClient(path=CHROMA_PERSIST_DIRECTORY)
-logger.info(f"ChromaDB initialized with persistence at: {CHROMA_PERSIST_DIRECTORY}")
-
-# Get or create collection
-book_collection = chroma_client.get_or_create_collection(name=CHROMA_COLLECTION_NAME)
-logger.info(f"Using ChromaDB collection: {CHROMA_COLLECTION_NAME}")
+# Constants
+DEFAULT_SEARCH_LIMIT = 3
+DEFAULT_SIMILARITY_THRESHOLD = 0.7
+SIMILARITY_DIVISOR = 2.0
+BOOK_ID_PREFIX = "book-"
 
 
-def get_embedding(text: str) -> List[float]:
+def _format_book_content_for_embedding(book: Book) -> str:
+    """
+    Format book content for embedding generation.
+
+    Args:
+        book: Book object to format
+
+    Returns:
+        str: Formatted book content string
+    """
+    age_range = (
+        f"{book.from_age}-{book.to_age}" if book.from_age is not None and book.to_age is not None else "All ages"
+    )
+
+    return (
+        f"Title: {book.title} | Description: {book.description} | Age range: {age_range} | "
+        f"Purpose: {book.purpose} | Genre: {book.genre or 'N/A'} | Tags: {book.tags}"
+    )
+
+
+def _extract_book_metadata(books: List[Book]) -> List[dict]:
+    """
+    Extract metadata from book objects for ChromaDB storage.
+
+    Args:
+        books: List of Book objects
+
+    Returns:
+        List[dict]: List of metadata dictionaries
+    """
+    metadatas = []
+    for book in books:
+        book_id_val = getattr(book, "id", None)
+        if book_id_val is None:
+            continue
+
+        metadatas.append({"id": int(book_id_val), "title": str(getattr(book, "title", ""))})
+
+    return metadatas
+
+
+def _has_valid_search_results(results: Any) -> bool:
+    """
+    Check if search results contain valid metadata and distances.
+
+    Args:
+        results: Search results from ChromaDB
+
+    Returns:
+        bool: True if results contain valid data
+    """
+    return (
+        results
+        and "metadatas" in results
+        and results["metadatas"]
+        and len(results["metadatas"]) > 0
+        and "distances" in results
+        and results["distances"]
+        and len(results["distances"]) > 0
+    )
+
+
+def create_openai_client(settings: AppSettings) -> OpenAI:
+    """
+    Create an OpenAI client instance using the provided settings.
+
+    Args:
+        settings: Application settings containing OpenAI configuration
+
+    Returns:
+        OpenAI: Configured OpenAI client instance
+    """
+    return OpenAI(api_key=settings.openai.api_key.get_secret_value())
+
+
+def get_embedding(text: str, settings: AppSettings) -> List[float]:
     """
     Get embedding for a text using OpenAI API.
 
     Args:
-        text: The text to embed
+        text: Text to embed
+        settings: Application settings
 
     Returns:
-        List of embedding values as floats
-
-    Raises:
-        ValueError: If OPENAI_EMBEDDING_MODEL environment variable is not set
+        List[float]: Embedding vector
     """
-    embedding_model = os.getenv("OPENAI_EMBEDDING_MODEL")
-    if not embedding_model:
-        logger.error("OPENAI_EMBEDDING_MODEL environment variable is required")
-        raise ValueError("OPENAI_EMBEDDING_MODEL environment variable is required")
-
+    client = create_openai_client(settings)
+    embedding_model = getattr(settings.openai, "embedding_model", settings.openai.model)
     response = client.embeddings.create(model=embedding_model, input=text)
     return response.data[0].embedding
 
 
-def initialize_vector_db(db: Session) -> None:
+def create_book_embeddings_from_database(db: Session, chromadb_service: Any) -> None:
     """
-    Initialize the vector database with book embeddings using batch processing.
+    Create book embeddings from database records and store them in the vector database.
+
+    This function loads books from the database, creates embeddings for their content,
+    and stores them in the ChromaDB vector store. Existing embeddings are skipped.
+    Batch size is controlled by config (settings.batch_size).
 
     Args:
-        db: SQLAlchemy database session
+        db: Database session
+        chromadb_service: ChromaDB client service instance
     """
-    # Get all books from the database
     books = db.query(Book).all()
-    logger.info(f"Initializing vector DB with {len(books)} books")
+    logger.info(f"Creating embeddings for {len(books)} books from database")
 
-    # Get existing book IDs in the collection to avoid recreating embeddings
+    # Use centralized books collection
+    book_collection = chromadb_service.get_books_collection()
+    logger.info(f"Using ChromaDB collection: {chromadb_service.get_books_collection_name()}")
+
     try:
         existing_ids = set(book_collection.get(include=[])["ids"])
         logger.info(f"Found {len(existing_ids)} existing embeddings in ChromaDB")
     except Exception:
-        # If there's an error getting existing IDs, assume none exist
         existing_ids = set()
         logger.info("No existing embeddings found or error accessing ChromaDB")
 
-    # Track counts
     created_count = 0
     skipped_count = 0
-
-    # Batch size for embedding requests
-    BATCH_SIZE = 50  # Adjust based on your needs and OpenAI API limits
-
-    # Prepare batches for processing
+    BATCH_SIZE = chromadb_service.get_batch_size()
     books_to_embed = []
     book_ids = []
     book_contents = []
 
     for book in books:
-        book_id = int(book.id)
-        book_id_str = f"book-{book_id}"
+        # Book.id is a SQLAlchemy Column, ensure int conversion
+        book_id_val = getattr(book, "id", None)
+        if book_id_val is None:
+            continue
 
-        # Skip if this book already has an embedding
+        book_id = int(book_id_val)
+        book_id_str = f"{BOOK_ID_PREFIX}{book_id}"
         if book_id_str in existing_ids:
             skipped_count += 1
             continue
 
-        # Create content to embed
-        content_to_embed = f"Title: {book.title} | Description: {book.description} | Age range: {f'{book.from_age}-{book.to_age}' if book.from_age is not None and book.to_age is not None else 'All ages'} | Purpose: {book.purpose} | Genre: {book.genre or 'N/A'} | Tags: {book.tags}"
-
+        content_to_embed = _format_book_content_for_embedding(book)
         books_to_embed.append(book)
         book_ids.append(book_id_str)
         book_contents.append(content_to_embed)
-
-        # Process batch when it reaches BATCH_SIZE
         if len(books_to_embed) >= BATCH_SIZE:
-            process_embedding_batch(books_to_embed, book_ids, book_contents)
+            process_embedding_batch(
+                books_to_embed, book_ids, book_contents, chromadb_service.get_settings(), book_collection
+            )
             created_count += len(books_to_embed)
             books_to_embed = []
             book_ids = []
             book_contents = []
 
-    # Process any remaining books
     if books_to_embed:
-        process_embedding_batch(books_to_embed, book_ids, book_contents)
+        process_embedding_batch(
+            books_to_embed, book_ids, book_contents, chromadb_service.get_settings(), book_collection
+        )
         created_count += len(books_to_embed)
 
-    logger.info(f"Embedding initialization complete: {created_count} created, {skipped_count} skipped")
+    logger.info(f"Book embeddings creation complete: {created_count} created, {skipped_count} skipped")
 
 
-def process_embedding_batch(books, book_ids, contents):
+def process_embedding_batch(
+    books: List[Book], book_ids: List[str], contents: List[str], settings: AppSettings, book_collection: Any
+) -> None:
     """
     Process a batch of books for embedding and storage in ChromaDB.
+    Embedding model is selected from config.
 
     Args:
         books: List of Book objects
         book_ids: List of book ID strings
         contents: List of content strings to embed
+        settings: Application settings
+        book_collection: ChromaDB collection
+
+    Raises:
+        Exception: If embedding creation or storage fails
     """
     try:
-        # Get embeddings for the batch
-        embedding_model = os.getenv("OPENAI_EMBEDDING_MODEL")
-        if not embedding_model:
-            logger.error("OPENAI_EMBEDDING_MODEL environment variable is required")
-            raise ValueError("OPENAI_EMBEDDING_MODEL environment variable is required")
+        metadatas = _extract_book_metadata(books)
+        # Create Document objects for the new langchain-chroma interface
+        documents = [
+            Document(page_content=content, metadata=metadata) for content, metadata in zip(contents, metadatas)
+        ]
 
-        response = client.embeddings.create(model=embedding_model, input=contents)
-        embeddings = [item.embedding for item in response.data]
-
-        # Prepare data for ChromaDB
-        embedding_arrays = [np.array(emb, dtype=np.float32) for emb in embeddings]
-        metadatas = [{"id": int(book.id), "title": str(book.title)} for book in books]
-
-        # Add to ChromaDB
-        book_collection.add(
-            embeddings=embedding_arrays,
-            documents=contents,
-            metadatas=metadatas,
+        # Add documents using the new interface
+        book_collection.add_documents(
+            documents=documents,
             ids=book_ids,
         )
         logger.debug(f"Added batch of {len(books)} embeddings to ChromaDB")
     except Exception as e:
-        logger.error(f"Error creating embeddings batch: {e}")
+        logger.error(f"Error creating embeddings batch: {e}", exc_info=True)
+        raise
 
 
-def search_by_vector(query_text: str, limit: int = 3, threshold: float = 0.7) -> List[int]:
+def search_by_vector(
+    query_text: str,
+    chromadb_service: Any,
+    limit: int = DEFAULT_SEARCH_LIMIT,
+    threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+) -> List[int]:
     """
     Search for books using vector similarity.
 
     Args:
-        query_text: The text query to search for
-        limit: Maximum number of results to return
-        threshold: Similarity threshold for filtering results
+        query_text: Text to search for
+        chromadb_service: ChromaDB client service instance
+        limit: Maximum number of results
+        threshold: Similarity threshold
 
     Returns:
-        List of book IDs that match the query
+        List[int]: List of book IDs
     """
     try:
-        # Get embedding for query
-        query_embedding = get_embedding(query_text)
+        book_collection = chromadb_service.get_books_collection()
 
-        # Convert to numpy array for ChromaDB compatibility
-        query_embedding_array = np.array(query_embedding, dtype=np.float32)
-
-        # Log search attempt
         logger.debug(f"Searching ChromaDB for query: '{query_text[:50]}...' with limit: {limit}")
 
-        # Search in ChromaDB
-        results = book_collection.query(
-            query_embeddings=query_embedding_array, n_results=limit, include=["metadatas", "distances"]
-        )
+        # Use LangChain Chroma API instead of native ChromaDB API
+        results_with_scores = book_collection.similarity_search_with_score(query_text, k=limit)
 
-        logger.debug(f"ChromaDB search complete, results found: {bool(results and results.get('distances'))}")
-
-        # Extract book IDs from results
+        logger.debug(f"ChromaDB search complete, results found: {bool(results_with_scores)}")
         book_ids: List[int] = []
 
-        # Check that all required data exists
-        if (
-            results
-            and "metadatas" in results
-            and results["metadatas"]
-            and len(results["metadatas"]) > 0
-            and "distances" in results
-            and results["distances"]
-            and len(results["distances"]) > 0
-        ):
+        for document, score in results_with_scores:
+            # Convert LangChain score to similarity (lower score = higher similarity)
+            similarity = 1 - score  # LangChain returns distance, convert to similarity
 
-            distances = results["distances"][0]
-            for i, metadata in enumerate(results["metadatas"][0]):
-                if i < len(distances) and "id" in metadata:
-                    # Convert distance to similarity score (0-1)
-                    similarity = 1 - (distances[i] / 2.0)
+            if "id" in document.metadata:
+                id_val = document.metadata["id"]
+                try:
+                    id_int = int(id_val) if id_val is not None else None
+                except Exception:
+                    id_int = None
 
-                    # Only include results above threshold
-                    if similarity >= threshold:
-                        book_ids.append(int(metadata["id"]))
-                        logger.debug(f"Book {metadata['id']}: similarity {similarity:.2f}")
-                    else:
-                        logger.debug(f"Filtered out book {metadata['id']} with low similarity {similarity:.2f}")
+                if id_int is not None and similarity >= threshold:
+                    book_ids.append(id_int)
+                    logger.debug(f"Book {id_val}: similarity {similarity:.2f}")
+                else:
+                    logger.debug(f"Filtered out book {id_val} with low similarity {similarity:.2f}")
 
         logger.debug(f"Found {len(book_ids)} similar books for vector query: {query_text[:50]}...")
         return book_ids
     except Exception as e:
-        logger.error(f"Error in vector search: {e}")
+        logger.error(f"Error in vector search: {e}", exc_info=True)
         return []
 
 
-def get_book_vector_matches(query_text: str, db: Session, limit: int = 3) -> List[Book]:
+def get_book_vector_matches(
+    query_text: str, db: Session, chromadb_service: Any, limit: int = DEFAULT_SEARCH_LIMIT
+) -> List[Book]:
     """
     Search for books using vector similarity and return Book objects.
 
     Args:
-        query_text: The search query
-        db: SQLAlchemy database session
-        limit: Maximum number of results to return
+        query_text: Text to search for
+        db: Database session
+        chromadb_service: ChromaDB client service instance
+        limit: Maximum number of results
 
     Returns:
-        List of Book objects matching the query
+        List[Book]: List of Book objects
     """
-    # Get book IDs from vector search
-    book_ids = search_by_vector(query_text, limit)
-
+    book_ids = search_by_vector(query_text, chromadb_service, limit)
     if not book_ids:
         return []
-
-    # Fetch the books from the database
     books = db.query(Book).filter(Book.id.in_(book_ids)).all()
-    logger.debug(f"Retrieved {len(books)} Book objects from vector search")
-
     return books

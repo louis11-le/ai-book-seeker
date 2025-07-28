@@ -1,7 +1,12 @@
 import asyncio
 
+from ai_book_seeker.core.config import AppSettings
 from ai_book_seeker.core.logging import get_logger
 from ai_book_seeker.db.database import get_db_session
+from ai_book_seeker.features.get_book_recommendation.logic import (
+    format_book_recommendation_result,
+    normalize_age_params,
+)
 from ai_book_seeker.services.query import search_books_by_criteria
 from ai_book_seeker.utils.helpers import extract_age_range_from_message
 
@@ -11,7 +16,10 @@ logger = get_logger("get_book_recommendation")
 
 
 async def get_book_recommendation_handler(
-    request: BookRecommendationSchema, original_message: str
+    request: BookRecommendationSchema,
+    original_message: str,
+    settings: AppSettings,
+    chromadb_service=None,
 ) -> BookRecommendationOutputSchema:
     """
     Async handler for the get_book_recommendation tool.
@@ -19,34 +27,25 @@ async def get_book_recommendation_handler(
     Args:
         request (BookRecommendationSchema): Validated schema with user preferences (age, purpose, budget, genre).
         original_message (str): The original user query string.
+        settings (AppSettings): Application settings for database configuration.
 
     Returns:
         BookRecommendationOutputSchema: Structured response with recommended books and summary text.
     """
-    # Prefer explicit age_from/age_to, else extract from message, else fallback to age
-    age_from = request.age_from
-    age_to = request.age_to
-    if age_from is None and age_to is None:
-        extracted_from, extracted_to = extract_age_range_from_message(original_message)
-        age_from = extracted_from
-        age_to = extracted_to
-
-    # If still not set, fallback to single age
-    if age_from is None and age_to is None and request.age is not None:
-        age_from = age_to = request.age
 
     purpose = request.purpose
     budget = request.budget
     genre = request.genre
-
+    age_from, age_to = normalize_age_params(request, original_message, extract_age_range_from_message)
     try:
 
         def sync_search():
             try:
-                with get_db_session() as db:
+                with get_db_session(settings) as db:
                     # Pass age_from and age_to to downstream search logic (to be updated in next task)
                     return search_books_by_criteria(
                         db=db,
+                        chromadb_service=chromadb_service,
                         age_from=age_from,
                         age_to=age_to,
                         purpose=purpose,
@@ -58,22 +57,7 @@ async def get_book_recommendation_handler(
                 return []
 
         results = await asyncio.to_thread(sync_search)
-        if results:
-            # Standardize output format
-            if len(results) == 1:
-                book = results[0]
-                text = f'I found a great book for you! "{book.title}" by {book.author} is {book.reason} Priced at ${book.price:.2f}.'
-            else:
-                book_texts = []
-                for book in results:
-                    book_texts.append(
-                        f"Title: {book.title} by {book.author}\nDescription: {book.description}\nPrice: ${book.price:.2f}\nReason: {book.reason}"
-                    )
-                text = "\n\n".join(book_texts)
-        else:
-            text = "I couldn't find any books matching your criteria. Could you tell me the age of the reader or what kind of stories you're interested in?"
-
-        return BookRecommendationOutputSchema(text=text, data=results)
+        return format_book_recommendation_result(results)
     except Exception as e:
         logger.error(f"Internal error in get_book_recommendation_handler: {e}", exc_info=True)
         return BookRecommendationOutputSchema(text="Internal error. Please try again later.", data=[])

@@ -41,7 +41,7 @@ def extract_text_with_pypdf(pdf_path: str, max_pages: int = 10) -> List[str]:
 
         return text_by_page
     except Exception as e:
-        logger.error(f"Error extracting text with PyPDF2: {str(e)}")
+        logger.error(f"Error extracting text with PyPDF2: {str(e)}", exc_info=True)
         return [""] * min(max_pages, 10)  # Return empty strings on error
 
 
@@ -74,7 +74,7 @@ def extract_text_with_ocr(pdf_path: str, max_pages: int = 10) -> List[str]:
 
         return text_by_page
     except Exception as e:
-        logger.error(f"Error extracting text with OCR: {str(e)}")
+        logger.error(f"Error extracting text with OCR: {str(e)}", exc_info=True)
         return [""] * min(max_pages, 10)  # Return empty strings on error
 
 

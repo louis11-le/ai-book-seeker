@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel
 
@@ -10,9 +10,15 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     output: str
-    data: Optional[List[Dict]] = None
+    data: Optional[Dict[str, Any]] = None
 
 
 class ChatSessionResponse(BaseModel):
     session_id: str
     response: ChatResponse
+
+
+class EnhancedChatSessionResponse(ChatSessionResponse):
+    """Enhanced chat session response with correlation ID for tracing."""
+
+    correlation_id: Optional[str] = None

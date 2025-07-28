@@ -1,0 +1,74 @@
+{
+  "normalized_metadata": {
+    "title": "Research on Climate Change Mitigation Strategies",
+    "author": "Dr. A. Smith",
+    "description": "This comprehensive research delves into the effectiveness of various strategies for mitigating climate change. It examines historical context, current research findings, and proposes novel methodologies for climate action.",
+    "age_range": "Adult",
+    "purpose": "To provide a detailed analysis of climate change mitigation strategies for researchers and policymakers.",
+    "genre": "Academic Research",
+    "tags": [
+      "Climate Change",
+      "Mitigation Strategies",
+      "Environmental Science",
+      "Research",
+      "Climate Action"
+    ],
+    "publication_details": {
+      "publisher": "Academic Press",
+      "publication_date": "2022",
+      "edition": "1st Edition",
+      "isbn": "978-0-123456-78-9",
+      "pages": 320
+    },
+    "language": "English",
+    "target_audience": {
+      "age_range": "Adult",
+      "from_age": 18,
+      "to_age": null,
+      "grade_level": "Higher Education",
+      "special_interests": [
+        "Climate Science",
+        "Environmental Studies"
+      ]
+    }
+  },
+  "validation_status": {
+    "is_valid": true,
+    "missing_fields": [],
+    "valid_fields": [
+      "title",
+      "author",
+      "description",
+      "age_range",
+      "purpose",
+      "genre",
+      "tags",
+      "publication_details",
+      "language",
+      "target_audience"
+    ]
+  },
+  "error_reports": {
+    "errors": {},
+    "warnings": {}
+  },
+  "confidence_scores": {
+    "overall": 0.95,
+    "fields": {
+      "title": 0.95,
+      "author": 0.95,
+      "description": 0.95,
+      "age_range": 0.9,
+      "purpose": 0.95,
+      "genre": 0.95,
+      "tags": 0.9,
+      "publication_details": 0.95,
+      "language": 0.95,
+      "target_audience": 0.9
+    }
+  },
+  "quality_assessment": {
+    "summary": "The extracted metadata is highly accurate and comprehensive, providing detailed information on the book's content, target audience, and publication details. Confidence levels are high across all fields, ensuring reliability."
+  },
+  "id": 53
+}

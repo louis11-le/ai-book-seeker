@@ -4,6 +4,9 @@ Book Metadata Extraction
 This module serves as the entry point for the book metadata extraction feature.
 It provides functions to extract metadata from PDF book files using a crew of
 specialized AI agents.
+
+All configuration (output directory, file naming, feature flags) is accessed via the centralized AppSettings config object.
+Do not use direct environment variable access or hardcoded values; use only AppSettings.
 """
 
 import json
@@ -12,9 +15,10 @@ import traceback
 from pathlib import Path
 from typing import Dict, Optional, Union
 
+from ai_book_seeker.core.config import AppSettings
 from ai_book_seeker.core.logging import get_logger
 from ai_book_seeker.db.database import get_db_session
-from ai_book_seeker.metadata_extraction.crew import MetadataExtractionCrew
+from ai_book_seeker.metadata_extraction.crew import create_metadata_extraction_crew
 from ai_book_seeker.metadata_extraction.schema import MetadataOutput
 from ai_book_seeker.metadata_extraction.tools.validation_tools import insert_book_metadata
 
@@ -23,13 +27,14 @@ logger = get_logger(__name__)
 
 
 def extract_book_metadata(
-    pdf_path: str, save_to_db: bool = True, output_path: Optional[str] = None
+    pdf_path: str, settings: AppSettings, save_to_db: bool = True, output_path: Optional[str] = None
 ) -> Optional[Dict[str, Union[str, int, list]]]:
     """
     Extract metadata from a PDF book file.
 
     Args:
         pdf_path: Path to the PDF file
+        settings: Application settings containing configuration
         save_to_db: Whether to save the metadata to the database
         output_path: Path to save the output file (optional)
 
@@ -42,8 +47,8 @@ def extract_book_metadata(
         raise FileNotFoundError(f"PDF file not found: {pdf_path}")
 
     try:
-        # Run the crew
-        crew_instance = MetadataExtractionCrew().crew()
+        # Run the crew using factory function
+        crew_instance = create_metadata_extraction_crew(settings).crew()
         result = crew_instance.kickoff(inputs={"pdf_path": pdf_path})
 
         # Parse raw output
@@ -65,27 +70,28 @@ def extract_book_metadata(
         metadata_dict = validated_model.model_dump()
 
         # Save output to file
+        output_path_obj: Path
         if output_path is None:
-            # Create outputs directory if it doesn't exist
-            outputs_dir = Path(__file__).parent / "outputs"
-            outputs_dir.mkdir(exist_ok=True)
-
-            # Get PDF filename without extension and create output filename
+            # Use output directory from config
+            output_dir = Path(settings.metadata_extraction.output_dir)
+            output_dir.mkdir(exist_ok=True)
             pdf_filename = Path(pdf_path).stem
-            output_path = outputs_dir / f"{pdf_filename}.txt"
-
-        # Ensure the output directory exists
-        output_dir = Path(output_path).parent
-        output_dir.mkdir(parents=True, exist_ok=True)
+            # Simple file naming pattern
+            output_filename = f"{pdf_filename}_metadata.json"
+            output_path_obj = output_dir / output_filename
+        else:
+            output_path_obj = Path(output_path)
+            output_dir = output_path_obj.parent
+            output_dir.mkdir(parents=True, exist_ok=True)
 
         # Save metadata to file
-        with open(output_path, "w", encoding="utf-8") as f:
+        with open(str(output_path_obj), "w", encoding="utf-8") as f:
             json.dump(metadata_dict, f, indent=2, ensure_ascii=False)
-        logger.info(f"Saved metadata to {output_path}")
+        logger.info(f"Saved metadata to {output_path_obj}")
 
         # Insert into DB
         if save_to_db:
-            with get_db_session() as session:
+            with get_db_session(settings) as session:
                 book_id = insert_book_metadata(session, validated_model)
                 metadata_dict["id"] = book_id
 
@@ -93,5 +99,5 @@ def extract_book_metadata(
 
     except Exception as e:
         traceback.print_exc()
-        logger.error(f"Error in metadata extraction: {e}")
+        logger.error(f"Error in metadata extraction: {e}", exc_info=True)
         return None

@@ -4,13 +4,10 @@ Integration tests for the metadata extraction module.
 
 import os
 import tempfile
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from ai_book_seeker.metadata_extraction.main import extract_book_metadata
-from ai_book_seeker.metadata_extraction.schema import MetadataOutput
 
 
 @pytest.fixture
@@ -34,12 +31,19 @@ def sample_pdf_path():
     os.unlink(tmp.name)
 
 
-@patch("ai_book_seeker.metadata_extraction.crew.MetadataExtractionCrew.crew")
-def test_extract_book_metadata_integration(mock_crew, sample_pdf_path):
+@patch("ai_book_seeker.metadata_extraction.crew.create_metadata_extraction_crew")
+def test_extract_book_metadata_integration(mock_create_crew, sample_pdf_path):
     """Test the integration of metadata extraction components."""
+    from ai_book_seeker.core.config import create_settings
+
+    # Create test settings
+    settings = create_settings()
+
     # Create mock crew
     mock_crew_instance = MagicMock()
-    mock_crew.return_value = mock_crew_instance
+    mock_crew = MagicMock()
+    mock_crew.crew.return_value = mock_crew_instance
+    mock_create_crew.return_value = mock_crew
 
     # Set up mock result
     mock_result = {
@@ -76,14 +80,18 @@ def test_extract_book_metadata_integration(mock_crew, sample_pdf_path):
     with patch("ai_book_seeker.metadata_extraction.main.insert_book_metadata") as mock_insert:
         mock_insert.return_value = 1  # Simulating book ID
 
-        # Run the extraction with save_to_db=True but with output_path=None (temporary file)
-        result = extract_book_metadata(sample_pdf_path, save_to_db=True, db=None, output_path=None)
+        # Run the extraction with settings parameter
+        result = extract_book_metadata(sample_pdf_path, settings, save_to_db=True, output_path=None)
+
+    # Assert the crew factory was called with correct settings
+    mock_create_crew.assert_called_once_with(settings)
 
     # Assert the crew was called with correct inputs
     mock_crew_instance.kickoff.assert_called_once_with(inputs={"pdf_path": sample_pdf_path})
 
     # Check the results
     assert result is not None
+    assert isinstance(result, dict)
     assert result["normalized_metadata"]["title"] == "Test Book"
     assert result["normalized_metadata"]["author"] == "Test Author"
 
