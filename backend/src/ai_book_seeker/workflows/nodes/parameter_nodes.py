@@ -14,26 +14,21 @@ Architecture:
 - Performance tracking and metrics collection
 """
 
+from langchain_core.messages import HumanMessage
+from langgraph.types import Command
+
 from ai_book_seeker.core.logging import get_logger
-from ai_book_seeker.workflows.constants import (
+from ai_book_seeker.workflows.constants import (  # SALES_AGENT_NODE,  # Temporarily disabled
     AGENT_COORDINATOR_NODE,
     GENERAL_AGENT_NODE,
     GENERAL_VOICE_AGENT_NODE,
     PARAMETER_EXTRACTION_NODE,
-    SALES_AGENT_NODE,
 )
-from ai_book_seeker.workflows.routing.parameter_extraction import (
-    extract_parameters_with_llm,
-)
+from ai_book_seeker.workflows.routing.parameter_extraction import extract_parameters_with_llm
 from ai_book_seeker.workflows.schemas import AgentState
 from ai_book_seeker.workflows.utils.error_handling import handle_node_error
 from ai_book_seeker.workflows.utils.message_factory import create_parameter_message
-from ai_book_seeker.workflows.utils.node_utils import (
-    create_command,
-    validate_input_state,
-)
-from langchain_core.messages import HumanMessage
-from langgraph.types import Command
+from ai_book_seeker.workflows.utils.node_utils import create_command, validate_input_state
 
 logger = get_logger(__name__)
 
@@ -42,7 +37,7 @@ VALID_ROUTING_TARGETS = {
     AGENT_COORDINATOR_NODE,
     GENERAL_AGENT_NODE,
     GENERAL_VOICE_AGENT_NODE,
-    SALES_AGENT_NODE,
+    # SALES_AGENT_NODE,  # Temporarily disabled
 }
 
 

@@ -182,7 +182,6 @@ def create_routing_message(
 
 def create_coordination_message(
     participating_agents: list,
-    intent_summary: list,
     session_id: str,
 ) -> SystemMessage:
     """
@@ -190,21 +189,19 @@ def create_coordination_message(
 
     Args:
         participating_agents: List of participating agents
-        intent_summary: Summary of query intents
         session_id: Session ID for tracing
 
     Returns:
         SystemMessage: Standardized coordination message
     """
     return create_system_message(
-        content=f"Coordinating {len(participating_agents)} agents for multi-agent query: {', '.join(intent_summary)}",
+        content=f"Coordinating {len(participating_agents)} agents for multi-agent query",
         node_name=AGENT_COORDINATOR_NODE,
         session_id=session_id,
         message_type="agent_coordination_start",
         additional_kwargs={
             "agents_count": len(participating_agents),
             "participating_agents": participating_agents,
-            "query_intents": intent_summary,
             "performance_optimized": False,
         },
     )

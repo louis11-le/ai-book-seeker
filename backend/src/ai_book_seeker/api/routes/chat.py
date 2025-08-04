@@ -14,11 +14,7 @@ from langgraph.graph import StateGraph
 
 from ai_book_seeker.api.schemas.chat import ChatRequest, ChatResponse, ChatSessionResponse, EnhancedChatSessionResponse
 from ai_book_seeker.core.logging import get_logger
-from ai_book_seeker.utils.streaming_utils import (
-    has_meaningful_agent_results,
-    sanitize_agent_results,
-    sanitize_update_data,
-)
+from ai_book_seeker.utils.streaming_utils import has_meaningful_agent_results, sanitize_agent_results
 from ai_book_seeker.workflows.orchestrator import get_orchestrator
 from ai_book_seeker.workflows.schemas import AgentState, get_state_manager
 
@@ -128,10 +124,22 @@ def _process_workflow_update(
         logger.info(f"[{correlation_id}] Message to process: {message_to_process}")
         content = _extract_message_content(message_to_process)
         if content:
+            # Optimized: Only include what frontend actually uses
+            response_data = {"node": node_name}
+
+            # Include agent_results if available (for structured data)
+            if "agent_results" in update and update["agent_results"] is not None:
+                response_data["agent_results"] = sanitize_agent_results(update["agent_results"])
+
+            # Include shared_data if available
+            if "shared_data" in update and update["shared_data"] is not None:
+                shared_data = update["shared_data"]
+                response_data["shared_data"] = _sanitize_shared_data(shared_data)
+
             return _create_streaming_response(
                 session_id=session_id,
                 output=content,
-                data={"node": node_name, "update": sanitize_update_data(update)},
+                data=response_data,
                 correlation_id=correlation_id,
             )
 
@@ -140,14 +148,110 @@ def _process_workflow_update(
         logger.info(f"[{correlation_id}] Agent results: {update['agent_results']}")
         agent_results = update["agent_results"]
         if has_meaningful_agent_results(agent_results):
+            response_data = {"node": node_name, "agent_results": sanitize_agent_results(agent_results)}
+
+            # Include shared_data if available
+            if "shared_data" in update and update["shared_data"] is not None:
+                shared_data = update["shared_data"]
+                response_data["shared_data"] = _sanitize_shared_data(shared_data)
+
             return _create_streaming_response(
                 session_id=session_id,
                 output="Processing...",
-                data={"node": node_name, "agent_results": sanitize_agent_results(agent_results)},
+                data=response_data,
                 correlation_id=correlation_id,
             )
 
     return None
+
+
+def _sanitize_shared_data(shared_data: Any) -> Dict[str, Any]:
+    """
+    Sanitize shared data for frontend consumption.
+
+    Args:
+        shared_data: Raw shared data from workflow state
+
+    Returns:
+        Dict[str, Any]: Sanitized shared data safe for frontend
+    """
+    if not shared_data:
+        return {}
+
+    try:
+        # Convert to dict if it's a Pydantic model
+        if hasattr(shared_data, "model_dump"):
+            shared_dict = shared_data.model_dump()
+        elif isinstance(shared_data, dict):
+            shared_dict = shared_data
+        else:
+            return {}
+
+        # Extract relevant fields for frontend
+        sanitized = {}
+
+        # Routing analysis
+        if "routing_analysis" in shared_dict and shared_dict["routing_analysis"]:
+            routing = shared_dict["routing_analysis"]
+            if hasattr(routing, "model_dump"):
+                routing_dict = routing.model_dump()
+            else:
+                routing_dict = routing
+            sanitized["routing_analysis"] = {
+                "next_node": routing_dict.get("next_node"),
+                "participating_agents": routing_dict.get("participating_agents", []),
+                "is_multi_purpose": routing_dict.get("is_multi_purpose", False),
+                "is_multi_agent": routing_dict.get("is_multi_agent", False),
+                "confidence": routing_dict.get("confidence", 0.0),
+                "reasoning": routing_dict.get("reasoning", ""),
+            }
+
+        # Extracted parameters
+        if "extracted_parameters" in shared_dict and shared_dict["extracted_parameters"]:
+            sanitized["extracted_parameters"] = shared_dict["extracted_parameters"]
+
+        # Participating agents for parallel execution
+        if "participating_agents_for_parallel" in shared_dict and shared_dict["participating_agents_for_parallel"]:
+            sanitized["participating_agents_for_parallel"] = shared_dict["participating_agents_for_parallel"]
+
+        # Selected tools for parallel execution
+        if "selected_tools_for_parallel" in shared_dict and shared_dict["selected_tools_for_parallel"]:
+            sanitized["selected_tools_for_parallel"] = shared_dict["selected_tools_for_parallel"]
+
+        # Agent insights (simplified)
+        if "agent_insights" in shared_dict and shared_dict["agent_insights"]:
+            insights = shared_dict["agent_insights"]
+            if isinstance(insights, list):
+                sanitized["agent_insights"] = [
+                    {
+                        "agent_name": (
+                            insight.get("agent_name")
+                            if isinstance(insight, dict)
+                            else getattr(insight, "agent_name", None)
+                        ),
+                        "selected_tools": (
+                            insight.get("selected_tools", [])
+                            if isinstance(insight, dict)
+                            else getattr(insight, "selected_tools", [])
+                        ),
+                        "reasoning": (
+                            insight.get("reasoning", "")
+                            if isinstance(insight, dict)
+                            else getattr(insight, "reasoning", "")
+                        ),
+                    }
+                    for insight in insights
+                ]
+
+        # Performance metrics (basic)
+        if "performance_metrics" in shared_dict and shared_dict["performance_metrics"]:
+            sanitized["performance_metrics"] = shared_dict["performance_metrics"]
+
+        return sanitized
+
+    except Exception as e:
+        logger.warning(f"Error sanitizing shared data: {e}")
+        return {}
 
 
 def _create_initial_state(session_id: str, message: str, correlation_id: str) -> AgentState:

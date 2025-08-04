@@ -1,22 +1,17 @@
 """
-Routing analysis schemas for workflow orchestration.
+Routing schemas for workflow orchestration.
 
-This module contains schemas for routing analysis and decision making.
-Follows industry best practices for routing schema design.
-
-The RoutingAnalysis schema provides comprehensive routing decisions for multi-agent
-and multi-purpose queries, enabling intelligent workflow orchestration.
+This module contains schemas for routing analysis and workflow state management.
+Follows industry best practices for routing schema design with comprehensive validation.
 """
 
-import logging
 from typing import List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
-from .intents import QueryIntents
+from ai_book_seeker.core.logging import get_logger
 
-# Initialize logger once at module level
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 # Constants for validation and configuration
@@ -27,6 +22,9 @@ class RoutingConstants:
     MIN_CONFIDENCE = 0.0
     MAX_CONFIDENCE = 1.0
     DEFAULT_CONFIDENCE = 0.5
+
+    # Reasoning constraints
+    MAX_REASONING_WORDS = 50
 
     # Node name patterns
     VALID_NODE_PATTERNS = [
@@ -57,7 +55,6 @@ class RoutingAnalysis(BaseModel):
         participating_agents: List of agents for parallel orchestration
         is_multi_purpose: Whether the query has multiple purposes
         is_multi_agent: Whether the query requires multiple agents
-        query_intents: Structured categorization of query intents
         reasoning: Human-readable explanation of routing decision
         confidence: Confidence score for the routing decision (0.0-1.0)
 
@@ -89,11 +86,9 @@ class RoutingAnalysis(BaseModel):
     is_multi_agent: bool = Field(
         default=False, description="Whether the query requires multiple agents for parallel processing"
     )
-    query_intents: QueryIntents = Field(
-        default_factory=QueryIntents,
-        description="Structured categorization of query intents (FAQ, recommendations, product inquiries, sales)",
+    reasoning: Optional[str] = Field(
+        default=None, description="Human-readable explanation of the routing decision (max 30 words)"
     )
-    reasoning: Optional[str] = Field(default=None, description="Human-readable explanation of the routing decision")
     confidence: float = Field(
         default=RoutingConstants.DEFAULT_CONFIDENCE,
         ge=RoutingConstants.MIN_CONFIDENCE,
@@ -142,7 +137,7 @@ class RoutingAnalysis(BaseModel):
     @field_validator("reasoning")
     @classmethod
     def validate_reasoning(cls, v: Optional[str]) -> Optional[str]:
-        """Validate that reasoning is properly formatted."""
+        """Validate that reasoning is properly formatted and within word limit."""
 
         if v is None:
             return v
@@ -150,7 +145,20 @@ class RoutingAnalysis(BaseModel):
         if not isinstance(v, str):
             raise ValueError("reasoning must be a string")
 
-        return v.strip() if v.strip() else None
+        cleaned = v.strip()
+        if not cleaned:
+            return None
+
+        # Check word count (max 30 words)
+        words = cleaned.split()
+        if len(words) > RoutingConstants.MAX_REASONING_WORDS:
+            logger.warning(
+                f"Reasoning exceeds {RoutingConstants.MAX_REASONING_WORDS} words ({len(words)} words), truncating"
+            )
+            truncated_words = words[: RoutingConstants.MAX_REASONING_WORDS]
+            return " ".join(truncated_words) + "..."
+
+        return cleaned
 
     def is_valid_for_execution(self) -> bool:
         """

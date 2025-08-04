@@ -1,5 +1,3 @@
-from typing import Optional
-
 from langchain_core.language_models import BaseLanguageModel
 
 from ai_book_seeker.workflows.constants import BOOK_RECOMMENDATION_TOOL_NODE, FAQ_TOOL_NODE
@@ -30,12 +28,12 @@ class GeneralAgent(BaseAgent):
     Interface Support: Chat only (voice queries handled by GeneralVoiceAgent)
     """
 
-    def __init__(self, llm: Optional[BaseLanguageModel] = None) -> None:
+    def __init__(self, llm: BaseLanguageModel) -> None:
         """
-        Initialize the GeneralAgent with optional language model.
+        Initialize the GeneralAgent with required language model.
 
         Args:
-            llm: Language model for query analysis and tool selection
+            llm: Language model for query analysis and tool selection (required)
         """
         super().__init__(name="general_agent", llm=llm)
 

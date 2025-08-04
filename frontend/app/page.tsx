@@ -6,28 +6,31 @@ import ChatMessages from '../components/ChatMessages';
 import ElevenLabsWidget from '../components/ElevenLabsWidget';
 import { BookType, MessageType } from '../types';
 
-// Types for better type safety
-interface ServerResponse {
-    session_id?: string;
-    response?: {
-        output?: string;
-        data?: {
-            node?: string;
-            agent_results?: {
-                faq?: any;
-            };
-        } | BookType[];
+// API response types
+interface AgentResults {
+    book_recommendation?: {
+        text: string;
+        data: BookType[];
     };
 }
 
 interface ResponseData {
     node?: string;
-    agent_results?: {
-        faq?: any;
+    agent_results?: AgentResults;
+}
+
+interface ServerResponse {
+    session_id?: string;
+    response?: {
+        output?: string;
+        data?: ResponseData;
     };
 }
 
+// Constants
 const WELCOME_MESSAGE = 'Welcome to AI Book Seeker! Ask me about books for specific ages, interests, or learning needs.';
+const COMPLETION_SIGNAL = '[DONE]';
+const ERROR_PREFIX = 'Error:';
 
 export default function Home() {
     const [messages, setMessages] = useState<MessageType[]>([
@@ -59,24 +62,13 @@ export default function Home() {
         setBooks([]);
     };
 
-    const hasMeaningfulContent = (data: ServerResponse): boolean => {
-        const responseData = data.response?.data;
+    const isUserFacingContent = (data: ServerResponse): boolean => {
+        const node = data.response?.data?.node;
+        return Boolean(node && (node.endsWith("_tool") || node === "format_response"));
+    };
 
-        // Primary check: Final formatted response from the backend
-        if (responseData && !Array.isArray(responseData) && responseData.node === 'format_response') {
-            return true;
-        }
-
-        // Fallback checks for legacy or edge cases
-        if (responseData && Array.isArray(responseData) && responseData.length > 0) {
-            return true;
-        }
-
-        if (responseData && !Array.isArray(responseData) && responseData.agent_results?.faq) {
-            return true;
-        }
-
-        return false;
+    const extractBooksFromResponse = (data: ServerResponse): BookType[] => {
+        return data.response?.data?.agent_results?.book_recommendation?.data || [];
     };
 
     const handleSendMessage = async (message: string) => {
@@ -98,9 +90,7 @@ export default function Home() {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
-            let assistantMessage = '';
             let newSessionId: string | null = null;
-            let isFirstChunk = true;
 
             while (true) {
                 const { value, done } = await reader.read();
@@ -114,49 +104,27 @@ export default function Home() {
                     if (line.trim()) {
                         try {
                             const data: ServerResponse = JSON.parse(line);
-
                             if (data.session_id) {
                                 newSessionId = data.session_id;
                             }
 
-                            if (data.response && data.response.output !== undefined && hasMeaningfulContent(data)) {
+                            if (data.response?.output !== undefined &&
+                                data.response.output !== COMPLETION_SIGNAL &&
+                                !data.response.output.startsWith(ERROR_PREFIX) &&
+                                isUserFacingContent(data)) {
+
                                 const output = data.response.output;
-                                assistantMessage += output;
-
-                                if (isFirstChunk) {
-                                    setMessages(prev => [...prev, { role: 'assistant' as const, content: assistantMessage }]);
-                                    isFirstChunk = false;
-                                } else {
-                                    setMessages(prev => {
-                                        const updated = [...prev];
-                                        const lastIdx = updated.length - 1;
-                                        if (updated[lastIdx]?.role === 'assistant') {
-                                            updated[lastIdx] = { ...updated[lastIdx], content: assistantMessage };
-                                        }
-                                        return updated;
-                                    });
-                                }
+                                setMessages(prev => [...prev, { role: 'assistant' as const, content: output }]);
                             }
 
-                            // Book recommendations from book_recommendation_tool node
-                            const responseData = data.response?.data;
-                            if (
-                                responseData &&
-                                typeof responseData === "object" &&
-                                !Array.isArray(responseData) &&
-                                (responseData as any).node === "book_recommendation_tool" &&
-                                (responseData as any).update?.agent_results?.book_recommendation?.data &&
-                                Array.isArray((responseData as any).update.agent_results.book_recommendation.data)
-                            ) {
-                                setBooks((responseData as any).update.agent_results.book_recommendation.data);
+                            const extractedBooks = extractBooksFromResponse(data);
+                            if (extractedBooks.length > 0) {
+                                setBooks(extractedBooks);
                             }
 
-                            // Legacy/other cases
-                            if (data.response && Array.isArray(data.response.data)) {
-                                setBooks(data.response.data);
-                            }
                         } catch (e) {
-                            // Ignore JSON parse errors for incomplete lines
+                            // Log JSON parse errors
+                            console.warn('[STREAM] Failed to parse streaming response:', e, line);
                         }
                     }
                 }
@@ -208,9 +176,9 @@ export default function Home() {
                                     <h3 className="font-bold">{book.title}</h3>
                                     <p className="text-sm text-gray-600">by {book.author}</p>
                                     <p className="my-1">{book.description}</p>
-                                    {book.explanation && (
+                                    {book.reason && (
                                         <p className="mt-2 text-sm italic text-gray-700 bg-yellow-50 p-2 rounded">
-                                            <span className="font-semibold">Why this matches:</span> {book.explanation}
+                                            <span className="font-semibold">Why this matches:</span> {book.reason}
                                         </p>
                                     )}
                                     <div className="mt-2 text-sm">

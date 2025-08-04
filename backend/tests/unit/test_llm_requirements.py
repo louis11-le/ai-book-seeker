@@ -143,7 +143,6 @@ class TestMockLLM:
         assert "participating_agents" in result
         assert "is_multi_purpose" in result
         assert "is_multi_agent" in result
-        assert "query_intents" in result
         assert "reasoning" in result
         assert "confidence" in result
 

@@ -298,8 +298,20 @@ async def startup_application(app: FastAPI) -> None:
         settings = await initialize_configuration(app)
 
         # Setup logging with configuration (must be done early)
-        setup_logging(log_level=settings.logging.level, environment=settings.environment.value)
+        setup_logging(
+            log_level=settings.logging.level,
+            environment=settings.environment.value,
+            enable_file_logging=settings.logging.enable_file_logging,
+            log_directory=settings.logging.log_directory,
+            log_filename=settings.logging.log_filename,
+            error_log_filename=settings.logging.error_log_filename,
+            max_file_size_mb=settings.logging.max_file_size_mb,
+            backup_count=settings.logging.backup_count,
+            enable_console_logging=settings.logging.enable_console_logging,
+        )
         logger.info(f"Logging configured with level: {settings.logging.level}")
+        if settings.logging.enable_file_logging:
+            logger.info(f"File logging enabled: {settings.logging.log_directory}/{settings.logging.log_filename}")
 
         # Initialize ChromaDB service first (required by other services)
         await initialize_chromadb_service(app, settings)

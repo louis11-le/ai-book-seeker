@@ -9,8 +9,12 @@ from langchain_core.messages import BaseMessage, HumanMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
+from ai_book_seeker.core.logging import get_logger
+
 from .agents import AgentInsight, AgentResults, AgentRole
 from .routing import RoutingAnalysis
+
+logger = get_logger(__name__)
 
 
 class TimestampedModel(BaseModel):
@@ -55,8 +59,10 @@ def merge_agent_results(left: AgentResults, right: AgentResults) -> AgentResults
 
         if right.faq is not None:
             merged.faq = right.faq
+
         if right.book_recommendation is not None:
             merged.book_recommendation = right.book_recommendation
+
         if right.book_details is not None:
             merged.book_details = right.book_details
 
@@ -71,7 +77,23 @@ def merge_shared_data(left: SharedData, right: SharedData) -> SharedData:
         merged = left.model_copy()
 
         if right.agent_insights:
-            merged.agent_insights.extend(right.agent_insights)
+            # Deduplication logic: only add insights that don't already exist from the same agent
+            existing_agent_names = {insight.agent_name for insight in merged.agent_insights}
+            new_insights = []
+            for insight in right.agent_insights:
+                if insight.agent_name not in existing_agent_names:
+                    new_insights.append(insight)
+                    logger.debug(f"Adding new insight from agent: {insight.agent_name}")
+                else:
+                    logger.debug(f"Skipping duplicate insight from agent: {insight.agent_name}")
+
+            if new_insights:
+                merged.agent_insights.extend(new_insights)
+                logger.info(
+                    f"Added {len(new_insights)} new insights, skipped {len(right.agent_insights) - len(new_insights)} duplicates"
+                )
+            else:
+                logger.info(f"All {len(right.agent_insights)} insights were duplicates, none added")
 
         if right.performance_metrics:
             merged.performance_metrics.update(right.performance_metrics)
