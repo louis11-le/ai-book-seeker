@@ -15,22 +15,15 @@ Follows LangGraph best practices for agent implementation with:
 import json
 from typing import Any, Dict, List, Optional
 
-from ai_book_seeker.core.logging import get_logger
-from ai_book_seeker.workflows.schemas import (
-    AgentInsight,
-    AgentRole,
-    AgentState,
-    RoutingAnalysis,
-)
-from ai_book_seeker.workflows.utils.error_handling import (
-    create_error_message,
-    handle_node_error,
-)
-from ai_book_seeker.workflows.utils.message_factory import create_ai_message
-from ai_book_seeker.workflows.utils.node_utils import create_command
 from langchain_core.language_models import BaseLanguageModel
 from langchain_core.messages import AIMessage
 from langgraph.types import Command
+
+from ai_book_seeker.core.logging import get_logger
+from ai_book_seeker.workflows.schemas import AgentInsight, AgentRole, AgentState, RoutingAnalysis
+from ai_book_seeker.workflows.utils.error_handling import create_error_message, handle_node_error
+from ai_book_seeker.workflows.utils.message_factory import create_ai_message
+from ai_book_seeker.workflows.utils.node_utils import create_command
 
 logger = get_logger(__name__)
 
@@ -38,14 +31,6 @@ logger = get_logger(__name__)
 MIN_CONFIDENCE = 0.0
 MAX_CONFIDENCE = 1.0
 REQUIRED_LLM_RESPONSE_KEYS = ["selected_tools", "reasoning", "confidence"]
-
-# Intent mapping for router context building
-INTENT_DISPLAY_MAPPINGS = {
-    "faq_requests": "FAQ requests",
-    "book_recommendations": "book recommendations",
-    "product_inquiries": "product inquiries",
-    "sales_requests": "sales requests",
-}
 
 
 class BaseAgent:
@@ -65,11 +50,11 @@ class BaseAgent:
 
     def __init__(self, name: str, llm: BaseLanguageModel) -> None:
         """
-        Initialize the base agent with name and language model.
+        Initialize the base agent with name and required language model.
 
         Args:
             name: Unique identifier for the agent
-            llm: Language model for query analysis and tool selection
+            llm: Language model for query analysis and tool selection (required)
         """
         self.name = name
         self.llm = llm
@@ -226,7 +211,6 @@ class BaseAgent:
             except json.JSONDecodeError as e:
                 logger.error(f"LLM returned invalid JSON: {result.content}")
                 raise ValueError(f"LLM returned invalid JSON: {e}")
-
         except Exception as e:
             raise self._handle_llm_error(e, "LLM invocation failed")
 
@@ -256,19 +240,9 @@ class BaseAgent:
         if not router_analysis:
             return ""
 
-        # Build intent summary using constants
-        intent_summary = []
-        if router_analysis.query_intents:
-            intent_summary = [
-                f"{len(getattr(router_analysis.query_intents, key, []))} {display_name}"
-                for key, display_name in INTENT_DISPLAY_MAPPINGS.items()
-                if getattr(router_analysis.query_intents, key, None)
-            ]
-
         return f"""
 Router Analysis:
 - Multi-agent query: {router_analysis.is_multi_agent}
-- Query intents: {', '.join(intent_summary) if intent_summary else 'None'}
 - Router reasoning: {router_analysis.reasoning or 'None'}
 - Router confidence: {router_analysis.confidence}
 """

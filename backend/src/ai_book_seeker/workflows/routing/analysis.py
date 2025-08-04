@@ -18,79 +18,9 @@ import json
 from typing import Any, Dict
 
 from ai_book_seeker.core.logging import get_logger
-from ai_book_seeker.workflows.routing.parameter_extraction import _safe_float, _safe_int
 from ai_book_seeker.workflows.schemas.routing import RoutingConstants
 
 logger = get_logger(__name__)
-
-
-def _clean_criteria_data_types(criteria: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Clean and convert criteria data types to match schema expectations.
-
-    Args:
-        criteria: Raw criteria dictionary from LLM
-
-    Returns:
-        Dict[str, Any]: Cleaned criteria with proper data types
-    """
-    cleaned = criteria.copy()
-
-    # Convert age to integer using existing _safe_int function
-    if "age" in cleaned and cleaned["age"] is not None:
-        cleaned["age"] = _safe_int(cleaned["age"])
-
-    # Convert budget to float using existing _safe_float function
-    if "budget" in cleaned and cleaned["budget"] is not None:
-        cleaned["budget"] = _safe_float(cleaned["budget"])
-
-    return cleaned
-
-
-def _clean_sales_details_data_types(sales_details: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Clean and convert sales details data types to match schema expectations.
-
-    Args:
-        sales_details: Raw sales details dictionary from LLM
-
-    Returns:
-        Dict[str, Any]: Cleaned sales details with proper data types
-    """
-    cleaned = sales_details.copy()
-
-    # Convert budget to float using existing _safe_float function
-    if "budget" in cleaned and cleaned["budget"] is not None:
-        cleaned["budget"] = _safe_float(cleaned["budget"])
-
-    return cleaned
-
-
-def _clean_query_intents_data_types(query_intents: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Clean and convert query intents data types to match schema expectations.
-
-    Args:
-        query_intents: Raw query intents dictionary from LLM
-
-    Returns:
-        Dict[str, Any]: Cleaned query intents with proper data types
-    """
-    cleaned = query_intents.copy()
-
-    # Clean book recommendations criteria
-    if "book_recommendations" in cleaned:
-        for rec in cleaned["book_recommendations"]:
-            if "criteria" in rec:
-                rec["criteria"] = _clean_criteria_data_types(rec["criteria"])
-
-    # Clean sales requests details
-    if "sales_requests" in cleaned:
-        for sale in cleaned["sales_requests"]:
-            if "sales_details" in sale:
-                sale["sales_details"] = _clean_sales_details_data_types(sale["sales_details"])
-
-    return cleaned
 
 
 def _validate_confidence(confidence: float) -> float:
@@ -104,6 +34,29 @@ def _validate_confidence(confidence: float) -> float:
         float: Normalized confidence value within bounds
     """
     return max(RoutingConstants.MIN_CONFIDENCE, min(RoutingConstants.MAX_CONFIDENCE, confidence))
+
+
+def _validate_reasoning_word_count(reasoning: str, max_words: int = RoutingConstants.MAX_REASONING_WORDS) -> str:
+    """
+    Validate and truncate reasoning to ensure it's within word limit.
+
+    Args:
+        reasoning: Raw reasoning text from LLM
+        max_words: Maximum number of words allowed
+
+    Returns:
+        str: Validated reasoning text within word limit
+    """
+    if not reasoning:
+        return ""
+
+    words = reasoning.strip().split()
+    if len(words) <= max_words:
+        return reasoning.strip()
+
+    # Truncate to max_words and add ellipsis
+    truncated_words = words[:max_words]
+    return " ".join(truncated_words) + "..."
 
 
 def _validate_and_clean_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
@@ -124,17 +77,12 @@ def _validate_and_clean_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
     if not next_node:
         raise ValueError("LLM analysis missing required 'next_node' field - no fallback mechanism")
 
-    # Clean query intents data types
-    query_intents = analysis.get("query_intents", {})
-    cleaned_query_intents = _clean_query_intents_data_types(query_intents)
-
     return {
         "next_node": next_node,
         "participating_agents": analysis.get("participating_agents", []),
         "is_multi_purpose": analysis.get("is_multi_purpose", False),
         "is_multi_agent": analysis.get("is_multi_agent", False),
-        "query_intents": cleaned_query_intents,
-        "reasoning": analysis.get("reasoning", ""),
+        "reasoning": _validate_reasoning_word_count(analysis.get("reasoning", "")),
         "confidence": _validate_confidence(analysis.get("confidence", RoutingConstants.DEFAULT_CONFIDENCE)),
     }
 
@@ -157,8 +105,7 @@ async def analyze_query_for_routing(query: str, llm: Any, interface: str) -> Dic
             - participating_agents: List of agents that should participate
             - is_multi_purpose: Whether query has multiple purposes
             - is_multi_agent: Whether multiple agents are needed
-            - query_intents: Categorized query intents
-            - reasoning: Explanation of routing decision
+            - reasoning: Brief explanation of routing decision (max 30 words)
             - confidence: Confidence score (0.0-1.0)
 
     Raises:
@@ -173,8 +120,7 @@ async def analyze_query_for_routing(query: str, llm: Any, interface: str) -> Dic
         #     "participating_agents": ["general_agent"],
         #     "is_multi_purpose": False,
         #     "is_multi_agent": False,
-        #     "query_intents": {...},
-        #     "reasoning": "Query requires book recommendations",
+        #     "reasoning": "Book recommendation query for chat interface",
         #     "confidence": 0.85
         # }
         ```
@@ -185,95 +131,39 @@ async def analyze_query_for_routing(query: str, llm: Any, interface: str) -> Dic
         The 'next_node' field is REQUIRED and must be provided by the LLM.
         Interface-aware routing ensures voice queries use general_voice_agent and
         chat queries use general_agent.
+        Optimized for minimal token usage with concise prompts.
     """
+
     try:
         # Use LLM for sophisticated analysis (required - no fallback)
         analysis_prompt = f"""
-        Analyze the following user query and determine the appropriate routing.
+        Route query: "{query}" (Interface: {interface})
 
-        Query: "{query}"
-        Interface: {interface}
+        Agents:
+        - general_agent: FAQ, book recommendations (CHAT ONLY)
+        - general_voice_agent: Voice queries, book recommendations (VOICE ONLY)
 
-        Determine:
-        1. Which agent(s) should handle this query
-        2. Whether this is a multi-agent or single-agent query
-        3. Whether this is a multi-purpose or single-purpose query
-        4. The confidence level of your analysis
+        Rules:
+        - Voice interface → general_voice_agent only
+        - Chat interface → general_agent only
+        - Never mix agents for same interface
 
-        Return a JSON object with the following structure:
+        Return JSON:
         {{
             "next_node": "agent_name or agent_coordinator",
             "participating_agents": ["list", "of", "agents"],
             "is_multi_purpose": true/false,
             "is_multi_agent": true/false,
-            "query_intents": {{
-                "faq_requests": [{{"intent": "...", "question": "...", "category": "...", "priority": 1}}],
-                "book_recommendations": [{{
-                    "intent": "...",
-                    "criteria": {{
-                        "age": 16,  # Single age (integer) - use null for age ranges
-                        "age_from": 1,  # Start of age range (integer) - use null for single ages
-                        "age_to": 6,  # End of age range (integer) - use null for single ages
-                        "budget": 15.0,  # Must be float (not "15$" or "15")
-                        "genre": "adventure"  # Must be string
-                    }},
-                    "category": "...",
-                    "priority": 1
-                }}],
-                "product_inquiries": [{{"intent": "...", "product_details": {{}}, "category": "...", "priority": 1}}],
-                "sales_requests": [{{
-                    "intent": "...",
-                    "sales_details": {{
-                        "budget": 15.0  # Must be float (not "15$" or "15")
-                    }},
-                    "category": "...",
-                    "priority": 1
-                }}]
-            }},
-            "reasoning": "explanation of routing decision",
+            "reasoning": "brief explanation (max {RoutingConstants.MAX_REASONING_WORDS} words)",
             "confidence": 0.0-1.0
         }}
-
-        IMPORTANT: For numeric fields, use proper JSON types:
-        - age: integer (e.g., 16, not "16+" or "16+")
-        - budget: float (e.g., 15.0, not "15$" or "15")
-        - price: float (e.g., 12.99, not "12.99$")
-
-        AGE RANGE HANDLING:
-        - For single ages: Set "age" field, leave "age_from" and "age_to" as null
-          Examples: "for a 10-year-old" → age: 10, age_from: null, age_to: null
-        - For age ranges: Set "age_from" and "age_to", leave "age" as null
-          Examples:
-          * "between 1 and 6" → age: null, age_from: 1, age_to: 6
-          * "ages 1-6" → age: null, age_from: 1, age_to: 6
-          * "1 to 6 years old" → age: null, age_from: 1, age_to: 6
-          * "for children 1-6" → age: null, age_from: 1, age_to: 6
-
-        Available agents:
-        - general_agent: Handles FAQ, book recommendations, general customer support (CHAT INTERFACE ONLY)
-        - general_voice_agent: Handles voice interface queries and book recommendations (VOICE INTERFACE ONLY)
-
-        INTERFACE-SPECIFIC ROUTING RULES:
-        - For voice interface: Use general_voice_agent only
-        - For chat interface: Use general_agent only
-        - Never select both agents for the same interface
-        - Never select general_agent for voice interface
-        - Never select general_voice_agent for chat interface
-
-        Available tools:
-        - faq_tool: For FAQ and customer service questions
-        - book_recommendation_tool: For book recommendations based on criteria
-        - book_details_tool: For specific book information and availability
-
-        Guidelines:
-        - Use "agent_coordinator" for multi-agent queries
-        - Use specific agent names for single-agent queries
-        - Set confidence between 0.0 and 1.0
-        - Provide clear reasoning for routing decisions
-        - Always respect interface-specific agent selection rules
         """
 
-        response = await llm.ainvoke(analysis_prompt, response_format={"type": "json_object"})
+        response = await llm.ainvoke(
+            analysis_prompt,
+            response_format={"type": "json_object"},
+            max_tokens=400,
+        )
 
         # Handle empty or invalid responses
         if not response.content or not response.content.strip():

@@ -15,5 +15,5 @@ export interface BookType {
     price: number;
     tags: string[];
     quantity: number;
-    explanation?: string;
+    reason?: string;
 }

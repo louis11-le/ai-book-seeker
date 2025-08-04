@@ -12,13 +12,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ai_book_seeker.workflows.constants import (
+from ai_book_seeker.workflows.constants import (  # SALES_AGENT_NODE,  # Temporarily disabled
     AGENT_COORDINATOR_NODE,
     ERROR_NODE,
     GENERAL_AGENT_NODE,
     GENERAL_VOICE_AGENT_NODE,
     PARAMETER_EXTRACTION_NODE,
-    SALES_AGENT_NODE,
 )
 from ai_book_seeker.workflows.nodes.agent_nodes import agent_coordinator_node, supervisor_router_node
 from ai_book_seeker.workflows.nodes.parameter_nodes import parameter_extraction_node
@@ -59,15 +58,15 @@ class TestNodeLogicFixes:
     async def test_parameter_extraction_node_no_goto(self, mock_state, mock_llm):
         """Test that parameter extraction node doesn't use goto parameter."""
         # Setup routing analysis
-        mock_state.shared_data.routing_analysis = RoutingAnalysis(
-            next_node=GENERAL_AGENT_NODE,
-            participating_agents=[GENERAL_AGENT_NODE],
+        routing_analysis = RoutingAnalysis(
+            next_node="general_agent",
+            participating_agents=["general_agent"],
             is_multi_purpose=False,
             is_multi_agent=False,
-            query_intents={},
             reasoning="Test reasoning",
             confidence=0.9,
         )
+        mock_state.shared_data.routing_analysis = routing_analysis
 
         # Execute parameter extraction node
         result = await parameter_extraction_node(mock_state, mock_llm)
@@ -81,16 +80,18 @@ class TestNodeLogicFixes:
     async def test_agent_coordinator_node_no_goto(self, mock_state):
         """Test that agent coordinator node doesn't use goto parameter."""
         # Setup participating agents
-        mock_state.shared_data.participating_agents_for_parallel = [GENERAL_AGENT_NODE, SALES_AGENT_NODE]
-        mock_state.shared_data.routing_analysis = RoutingAnalysis(
+        mock_state.shared_data.participating_agents_for_parallel = [
+            GENERAL_AGENT_NODE
+        ]  # SALES_AGENT_NODE temporarily disabled
+        routing_analysis = RoutingAnalysis(
             next_node=GENERAL_AGENT_NODE,
-            participating_agents=[GENERAL_AGENT_NODE, SALES_AGENT_NODE],
+            participating_agents=[GENERAL_AGENT_NODE],  # SALES_AGENT_NODE temporarily disabled
             is_multi_purpose=True,
             is_multi_agent=True,
-            query_intents={},
             reasoning="Test reasoning",
             confidence=0.9,
         )
+        mock_state.shared_data.routing_analysis = routing_analysis
 
         # Execute agent coordinator node
         result = await agent_coordinator_node(mock_state)
@@ -128,15 +129,15 @@ class TestConditionalEdgeSystem:
     def test_parameter_extraction_routing_targets(self, mock_state):
         """Test parameter extraction routing targets."""
         # Test with valid routing analysis
-        mock_state.shared_data.routing_analysis = RoutingAnalysis(
+        routing_analysis = RoutingAnalysis(
             next_node=GENERAL_AGENT_NODE,
             participating_agents=[GENERAL_AGENT_NODE],
             is_multi_purpose=False,
             is_multi_agent=False,
-            query_intents={},
             reasoning="Test reasoning",
             confidence=0.9,
         )
+        mock_state.shared_data.routing_analysis = routing_analysis
 
         result = _get_parameter_extraction_routing_targets(mock_state)
         assert result == GENERAL_AGENT_NODE
@@ -157,7 +158,6 @@ class TestConditionalEdgeSystem:
             participating_agents=[],
             is_multi_purpose=False,
             is_multi_agent=False,
-            query_intents={},
             reasoning="Test reasoning",
             confidence=0.9,
         )
@@ -167,9 +167,11 @@ class TestConditionalEdgeSystem:
     def test_agent_routing_targets(self, mock_state):
         """Test agent routing targets."""
         # Test with participating agents
-        mock_state.shared_data.participating_agents_for_parallel = [GENERAL_AGENT_NODE, SALES_AGENT_NODE]
+        mock_state.shared_data.participating_agents_for_parallel = [
+            GENERAL_AGENT_NODE
+        ]  # SALES_AGENT_NODE temporarily disabled
         result = _get_agent_routing_targets(mock_state)
-        assert result == [GENERAL_AGENT_NODE, SALES_AGENT_NODE]
+        assert result == [GENERAL_AGENT_NODE]  # SALES_AGENT_NODE temporarily disabled
 
         # Test with no participating agents
         mock_state.shared_data.participating_agents_for_parallel = []
@@ -270,29 +272,25 @@ class TestPureConditionalEdgeCompliance:
         # This test verifies that the edge registration functions don't create conflicts
         from ai_book_seeker.workflows.registration.edge_registration import (
             entrypoint_edges,
-            error_edges,
-            merge_to_format_end_edges,
             router_to_agent_edges,
-            tool_to_merge_edges,
+            tool_to_format_edges,
         )
 
         # Get all static edges
         static_edges = set()
         static_edges.update(entrypoint_edges())
         static_edges.update(router_to_agent_edges())
-        static_edges.update(tool_to_merge_edges())
-        static_edges.update(error_edges())
-        static_edges.update(merge_to_format_end_edges())
+        static_edges.update(tool_to_format_edges())
 
         # Verify no dynamic routing edges are in static edges
         dynamic_routing_edges = {
             (PARAMETER_EXTRACTION_NODE, GENERAL_AGENT_NODE),
             (PARAMETER_EXTRACTION_NODE, GENERAL_VOICE_AGENT_NODE),
-            (PARAMETER_EXTRACTION_NODE, SALES_AGENT_NODE),
+            # (PARAMETER_EXTRACTION_NODE, SALES_AGENT_NODE),  # Temporarily disabled
             (PARAMETER_EXTRACTION_NODE, AGENT_COORDINATOR_NODE),
             (AGENT_COORDINATOR_NODE, GENERAL_AGENT_NODE),
             (AGENT_COORDINATOR_NODE, GENERAL_VOICE_AGENT_NODE),
-            (AGENT_COORDINATOR_NODE, SALES_AGENT_NODE),
+            # (AGENT_COORDINATOR_NODE, SALES_AGENT_NODE),  # Temporarily disabled
         }
 
         # Check for conflicts
@@ -305,7 +303,7 @@ class TestPureConditionalEdgeCompliance:
         valid_targets = {
             GENERAL_AGENT_NODE,
             GENERAL_VOICE_AGENT_NODE,
-            SALES_AGENT_NODE,
+            # SALES_AGENT_NODE,  # Temporarily disabled
             AGENT_COORDINATOR_NODE,
             ERROR_NODE,
         }
@@ -313,21 +311,23 @@ class TestPureConditionalEdgeCompliance:
         # Test parameter extraction routing targets
         mock_state = MagicMock(spec=AgentState)
         mock_state.shared_data = MagicMock(spec=SharedData)
-        mock_state.shared_data.routing_analysis = RoutingAnalysis(
+        routing_analysis = RoutingAnalysis(
             next_node=GENERAL_AGENT_NODE,
             participating_agents=[GENERAL_AGENT_NODE],
             is_multi_purpose=False,
             is_multi_agent=False,
-            query_intents={},
             reasoning="Test reasoning",
             confidence=0.9,
         )
+        mock_state.shared_data.routing_analysis = routing_analysis
 
         result = _get_parameter_extraction_routing_targets(mock_state)
         assert result in valid_targets
 
         # Test agent routing targets
-        mock_state.shared_data.participating_agents_for_parallel = [GENERAL_AGENT_NODE, SALES_AGENT_NODE]
+        mock_state.shared_data.participating_agents_for_parallel = [
+            GENERAL_AGENT_NODE
+        ]  # SALES_AGENT_NODE temporarily disabled
         result = _get_agent_routing_targets(mock_state)
         assert all(target in valid_targets for target in result)
 

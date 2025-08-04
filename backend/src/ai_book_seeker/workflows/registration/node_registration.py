@@ -11,8 +11,9 @@ from typing import Any, Callable, Dict, List, Union
 from ai_book_seeker.core.logging import get_logger
 from ai_book_seeker.workflows.agents.general import GeneralAgent
 from ai_book_seeker.workflows.agents.general_voice import GeneralVoiceAgent
-from ai_book_seeker.workflows.agents.sales import SalesAgent
-from ai_book_seeker.workflows.constants import (
+
+# from ai_book_seeker.workflows.agents.sales import SalesAgent  # Temporarily disabled
+from ai_book_seeker.workflows.constants import (  # SALES_AGENT_NODE,  # Temporarily disabled
     AGENT_COORDINATOR_NODE,
     BOOK_DETAILS_TOOL_NODE,
     BOOK_RECOMMENDATION_TOOL_NODE,
@@ -21,10 +22,8 @@ from ai_book_seeker.workflows.constants import (
     FORMAT_RESPONSE_NODE,
     GENERAL_AGENT_NODE,
     GENERAL_VOICE_AGENT_NODE,
-    MERGE_TOOLS_NODE,
     PARAMETER_EXTRACTION_NODE,
     ROUTER_NODE,
-    SALES_AGENT_NODE,
 )
 from ai_book_seeker.workflows.nodes.agent_nodes import (
     agent_coordinator_node,
@@ -36,7 +35,6 @@ from ai_book_seeker.workflows.nodes.tool_nodes import (
     book_details_tool_node,
     book_recommendation_tool_node,
     faq_tool_node,
-    merge_tools_node,
 )
 from ai_book_seeker.workflows.utils.error_handling import handle_node_error
 
@@ -129,7 +127,7 @@ def create_agent_node_map(llm: Any) -> Dict[str, Callable]:
     # Create agent instances directly using explicit agent classes
     general_agent = GeneralAgent(llm=llm)
     general_voice_agent = GeneralVoiceAgent(llm=llm)
-    sales_agent = SalesAgent(llm=llm)
+    # sales_agent = SalesAgent(llm=llm)  # Temporarily disabled
 
     # Define node bindings with dependency injection
     agent_bindings = [
@@ -138,7 +136,7 @@ def create_agent_node_map(llm: Any) -> Dict[str, Callable]:
         (AGENT_COORDINATOR_NODE, agent_coordinator_node),
         (GENERAL_AGENT_NODE, general_agent.handle),
         (GENERAL_VOICE_AGENT_NODE, general_voice_agent.handle),
-        (SALES_AGENT_NODE, sales_agent.handle),
+        # (SALES_AGENT_NODE, sales_agent.handle),  # Temporarily disabled
         (FORMAT_RESPONSE_NODE, format_response_node),
         (ERROR_NODE, error_node),
     ]
@@ -188,19 +186,21 @@ def create_tool_node_map(faq_service: Any, settings: Any, chromadb_service: Any)
             (book_recommendation_tool_node, {"settings": settings, "chromadb_service": chromadb_service}),
         ),
         (BOOK_DETAILS_TOOL_NODE, (book_details_tool_node, {"settings": settings})),
-        (MERGE_TOOLS_NODE, merge_tools_node),
     ]
 
     return _create_node_mapping(tool_bindings)
 
 
-def create_agent_tool_map() -> Dict[str, list[str]]:
+def create_agent_tool_map(llm: Any) -> Dict[str, list[str]]:
     """
-    Create agent-tool mapping for conditional edge routing.
+    Create agent-tool mapping by reading from agent instances.
 
-    This function defines which tools are available to each agent, enabling
-    dynamic conditional edge routing in the workflow. It serves as a single
-    source of truth for agent capabilities and tool assignments.
+    This function extracts tool assignments from agent class definitions,
+    making agent classes the single source of truth for tool assignments.
+    It enables dynamic conditional edge routing in the workflow.
+
+    Args:
+        llm: Language model for agent initialization (required for proper agent setup)
 
     Returns:
         Dict[str, list[str]]: Mapping of agent nodes to available tool nodes.
@@ -209,26 +209,38 @@ def create_agent_tool_map() -> Dict[str, list[str]]:
 
     Example:
         ```python
-        agent_tool_map = create_agent_tool_map()
+        agent_tool_map = create_agent_tool_map(llm=my_llm)
         # Returns: {
         #     'general_agent': ['faq_tool', 'book_recommendation_tool'],
         #     'general_voice_agent': ['book_recommendation_tool'],
-        #     'sales_agent': ['book_details_tool'],
         # }
         ```
 
     Note:
+        - Agent classes are the single source of truth for tool assignments
         - Used by edge registration for dynamic conditional edge generation
         - All node names use constants for consistency
         - Supports parallel tool execution within agents
+        - LLM is required for proper agent initialization and role definition
     """
-    agent_tool_config = {
-        GENERAL_AGENT_NODE: [FAQ_TOOL_NODE, BOOK_RECOMMENDATION_TOOL_NODE],
-        GENERAL_VOICE_AGENT_NODE: [BOOK_RECOMMENDATION_TOOL_NODE],
-        SALES_AGENT_NODE: [BOOK_DETAILS_TOOL_NODE],
+    # Create agent instances to get their tool definitions
+    # LLM is required for proper agent initialization and role definition
+    general_agent = GeneralAgent(llm=llm)
+    general_voice_agent = GeneralVoiceAgent(llm=llm)
+    # sales_agent = SalesAgent(llm=llm)  # Temporarily disabled
+
+    agent_instances = {
+        GENERAL_AGENT_NODE: general_agent,
+        GENERAL_VOICE_AGENT_NODE: general_voice_agent,
+        # SALES_AGENT_NODE: sales_agent,  # Temporarily disabled
     }
 
-    return agent_tool_config
+    # Extract tool assignments from agent definitions
+    agent_tool_map = {}
+    for agent_node, agent in agent_instances.items():
+        agent_tool_map[agent_node] = agent.role.available_tools
+
+    return agent_tool_map
 
 
 def register_nodes(builder: Any, agent_node_map: Dict[str, Callable], tool_node_map: Dict[str, Callable]) -> None:

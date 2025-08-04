@@ -28,11 +28,9 @@ from langgraph.graph import StateGraph
 from ai_book_seeker.core.logging import get_logger
 from ai_book_seeker.workflows.registration.edge_registration import (
     entrypoint_edges,
-    error_edges,
-    merge_to_format_end_edges,
     register_edges,
     router_to_agent_edges,
-    tool_to_merge_edges,
+    tool_to_format_edges,
 )
 from ai_book_seeker.workflows.registration.node_registration import (
     create_agent_node_map,
@@ -82,8 +80,8 @@ async def get_orchestrator(app: Any) -> StateGraph:
         result = await orchestrator.ainvoke(initial_state)
         ```
     """
-    logger.info("Creating modular workflow orchestrator")
 
+    logger.info("Creating modular workflow orchestrator")
     try:
         # Validate application configuration
         if not hasattr(app, "state") or not hasattr(app.state, "config"):
@@ -134,14 +132,12 @@ async def get_orchestrator(app: Any) -> StateGraph:
         edge_groups = [
             entrypoint_edges(),
             router_to_agent_edges(),
-            tool_to_merge_edges(),
-            error_edges(),
-            merge_to_format_end_edges(),
+            tool_to_format_edges(),
         ]
 
         # Register all edges including conditional edges for parallel execution
         logger.debug("Registering edges and conditional edges")
-        register_edges(builder, edge_groups)
+        register_edges(builder, edge_groups, llm=llm)
 
         # Configure workflow entry and exit points
         logger.debug(f"Setting workflow entry point: {WORKFLOW_ENTRY_POINT}")
@@ -160,9 +156,7 @@ async def get_orchestrator(app: Any) -> StateGraph:
 
         logger.info("Modular workflow orchestrator created successfully")
         logger.debug(f"Workflow compiled with {len(agent_node_map)} agent nodes and {len(tool_node_map)} tool nodes")
-
         return workflow
-
     except ValueError as e:
         logger.error(f"Configuration error in orchestrator creation: {e}")
         raise

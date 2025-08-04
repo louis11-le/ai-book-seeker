@@ -7,28 +7,28 @@ Follows LangGraph best practices for agent node implementation.
 Key Components:
 - supervisor_router_node: Analyzes queries and determines routing strategy
 - agent_coordinator_node: Coordinates multi-agent parallel execution
-- format_response_node: Formats final responses for user consumption
+- format_response_node: Handles streaming and final response formatting
 
 Architecture:
 - LLM-powered intelligent routing with confidence scoring
 - Multi-agent parallel execution with conditional edge routing
-- Streaming-first response formatting with comprehensive error handling
+- Streaming-first response formatting for immediate user feedback
+- Progressive response building with comprehensive error handling
 - State management optimization with performance tracking
 """
 
-from typing import Any, List, Optional
+from typing import Any, Optional
 
 from langgraph.types import Command
 
 from ai_book_seeker.core.logging import get_logger
 from ai_book_seeker.workflows.constants import (
     AGENT_COORDINATOR_NODE,
+    FINAL_RESPONSE_MESSAGE_TYPE,
     FORMAT_RESPONSE_NODE,
-    GENERAL_AGENT_NODE,
-    GENERAL_VOICE_AGENT_NODE,
     PARAMETER_EXTRACTION_NODE,
     ROUTER_NODE,
-    SALES_AGENT_NODE,
+    STREAMING_RESPONSE_MESSAGE_TYPE,
 )
 from ai_book_seeker.workflows.routing.analysis import analyze_query_for_routing
 from ai_book_seeker.workflows.schemas import AgentState
@@ -44,11 +44,7 @@ from ai_book_seeker.workflows.utils.node_utils import create_command, validate_i
 logger = get_logger(__name__)
 
 # Constants for result extraction (scoped to this module)
-RESULT_TEXT_FIELDS = ["text", "answer", "content", "response"]
-RESULT_DICT_FIELDS = ["text", "answer", "content", "response", "message"]
-
-# Valid agent nodes for routing validation
-VALID_AGENT_NODES = [GENERAL_AGENT_NODE, GENERAL_VOICE_AGENT_NODE, SALES_AGENT_NODE]
+RESULT_FIELDS = ["text", "answer", "content", "response", "message"]
 
 
 def _validate_routing_analysis(state: AgentState, trace_id: str, node_name: str) -> Optional[Command]:
@@ -69,26 +65,6 @@ def _validate_routing_analysis(state: AgentState, trace_id: str, node_name: str)
         return Command(update={"messages": [error_msg]})
 
     return None
-
-
-def _extract_participating_agents(state: AgentState, trace_id: str, node_name: str) -> Optional[List[str]]:
-    """
-    Extract and validate participating agents with standardized error handling.
-
-    Args:
-        state: Current workflow state
-        trace_id: Trace ID for logging
-        node_name: Name of the node for error context
-
-    Returns:
-        Optional[List[str]]: List of participating agents or None if validation fails
-    """
-    participating_agents = state.shared_data.routing_analysis.participating_agents or []
-    if not participating_agents:
-        logger.warning(f"[{node_name}][{trace_id}] No participating agents found")
-        return None
-
-    return participating_agents
 
 
 async def supervisor_router_node(state: AgentState, llm) -> Command:
@@ -140,7 +116,6 @@ async def supervisor_router_node(state: AgentState, llm) -> Command:
                 participating_agents=analysis.get("participating_agents", []),
                 is_multi_purpose=analysis.get("is_multi_purpose", False),
                 is_multi_agent=analysis.get("is_multi_agent", False),
-                query_intents=analysis.get("query_intents", {}),
                 reasoning=analysis.get("reasoning", ""),
                 confidence=analysis.get("confidence", RoutingConstants.DEFAULT_CONFIDENCE),
             )
@@ -159,7 +134,6 @@ async def supervisor_router_node(state: AgentState, llm) -> Command:
             confidence=routing_analysis.confidence,
             session_id=state.session_id,
         )
-
         return create_command(messages=[router_msg], state=state, metric_name=ROUTER_NODE)
     except Exception as e:
         return handle_node_error(e, ROUTER_NODE, state)
@@ -194,8 +168,8 @@ async def agent_coordinator_node(state: AgentState) -> Command:
         if error_cmd:
             return error_cmd
 
-        # Extract and validate participating agents
-        participating_agents = _extract_participating_agents(state, trace_id, AGENT_COORDINATOR_NODE)
+        # Extract participating agents directly
+        participating_agents = state.shared_data.routing_analysis.participating_agents or []
         if not participating_agents:
             error_msg = create_error_message(
                 ValueError("No participating agents found"), AGENT_COORDINATOR_NODE, trace_id
@@ -212,24 +186,22 @@ async def agent_coordinator_node(state: AgentState) -> Command:
         # Create coordination message using utility
         coord_msg = create_coordination_message(
             participating_agents=participating_agents,
-            intent_summary=[],  # Could be enhanced with intent summary
             session_id=state.session_id,
         )
 
         # Let conditional edges handle routing decisions
         # No goto parameter - conditional edges will determine next node
         return create_command(messages=[coord_msg], state=state, metric_name=AGENT_COORDINATOR_NODE)
-
     except Exception as e:
         return handle_node_error(e, AGENT_COORDINATOR_NODE, state)
 
 
 def format_response_node(state: AgentState) -> Command:
     """
-    Format response node for final response preparation.
+    Format response node for streaming and final response preparation.
 
-    Formats and finalizes the workflow response for user consumption.
-    Extracts and combines results from multiple tools and agents.
+    Handles both streaming responses from individual tools and final combined responses.
+    Supports progressive response building for better user experience.
 
     Args:
         state: Current workflow state containing agent results and shared data
@@ -239,48 +211,91 @@ def format_response_node(state: AgentState) -> Command:
 
     Example:
         ```python
-        # Formats final response from all tool results
+        # Formats streaming or final response
         command = format_response_node(state)
-        # Returns: Command(goto=END_NODE, update={"messages": [formatted_response]})
+        # Returns: Command with streaming or final response
         ```
     """
     trace_id = state.session_id
-    logger.info(f"[{FORMAT_RESPONSE_NODE}][{trace_id}] Formatting final response")
+    logger.info(f"[{FORMAT_RESPONSE_NODE}][{trace_id}] Formatting response")
 
     try:
-        # Define result types and their handlers
-        result_types = [
-            ("faq", "FAQ"),
-            ("book_recommendation", "Book Recommendation"),
-            ("book_details", "Book Details"),
+        # Check if this is a streaming response from a single tool
+        streaming_messages = [
+            msg
+            for msg in state.messages
+            if msg.additional_kwargs.get("message_type") == STREAMING_RESPONSE_MESSAGE_TYPE
         ]
 
-        response_parts = []
-        for attr_name, display_name in result_types:
-            result = getattr(state.agent_results, attr_name, None)
-            if result:
-                response_parts.append(_extract_result_text(result, trace_id, display_name))
+        if streaming_messages:
+            # Don't re-send streaming messages that were already sent by tool nodes
+            # Instead, send a completion message or nothing
+            logger.info(
+                f"[{FORMAT_RESPONSE_NODE}][{trace_id}] Streaming messages already sent by tools, skipping duplicate"
+            )
 
-        # Combine responses
-        final_response = "\n\n".join(response_parts) if response_parts else "No results available."
+            # Send a completion message to indicate all tools are done
+            completion_msg = create_system_message(
+                content="All requested information has been provided.",
+                node_name=FORMAT_RESPONSE_NODE,
+                session_id=state.session_id,
+                message_type=FINAL_RESPONSE_MESSAGE_TYPE,
+                additional_kwargs={
+                    "completion": True,
+                    "streaming_messages_count": len(streaming_messages),
+                },
+            )
+            return create_command(messages=[completion_msg], state=state, metric_name=FORMAT_RESPONSE_NODE)
+        else:
+            # Handle final combined response
+            logger.info(f"[{FORMAT_RESPONSE_NODE}][{trace_id}] Processing final combined response")
+            return _create_final_response(state, trace_id)
 
-        # Create final response message using utility
-        final_msg = create_system_message(
-            content=final_response,
-            node_name=FORMAT_RESPONSE_NODE,
-            session_id=state.session_id,
-            message_type="final_response",
-            additional_kwargs={
-                "results_count": len(response_parts),
-                "has_faq": state.agent_results.faq is not None,
-                "has_book_recommendation": state.agent_results.book_recommendation is not None,
-                "has_book_details": state.agent_results.book_details is not None,
-            },
-        )
-
-        return create_command(messages=[final_msg], state=state, metric_name=FORMAT_RESPONSE_NODE)
     except Exception as e:
         return handle_node_error(e, FORMAT_RESPONSE_NODE, state)
+
+
+def _create_final_response(state: AgentState, trace_id: str) -> Command:
+    """
+    Create final combined response from all tool results.
+
+    Args:
+        state: Current workflow state
+        trace_id: Trace ID for logging
+
+    Returns:
+        Command: Final response command
+    """
+    # Define result types and their handlers
+    result_types = [
+        ("faq", "FAQ"),
+        ("book_recommendation", "Book Recommendation"),
+        ("book_details", "Book Details"),
+    ]
+
+    response_parts = []
+    for attr_name, display_name in result_types:
+        result = getattr(state.agent_results, attr_name, None)
+        if result:
+            response_parts.append(_extract_result_text(result, trace_id, display_name))
+
+    # Combine responses
+    final_response = "\n\n".join(response_parts) if response_parts else "No results available."
+
+    # Create final response message using utility
+    final_msg = create_system_message(
+        content=final_response,
+        node_name=FORMAT_RESPONSE_NODE,
+        session_id=state.session_id,
+        message_type=FINAL_RESPONSE_MESSAGE_TYPE,
+        additional_kwargs={
+            "results_count": len(response_parts),
+            "has_faq": state.agent_results.faq is not None,
+            "has_book_recommendation": state.agent_results.book_recommendation is not None,
+            "has_book_details": state.agent_results.book_details is not None,
+        },
+    )
+    return create_command(messages=[final_msg], state=state, metric_name=FORMAT_RESPONSE_NODE)
 
 
 def _extract_result_text(result: Any, trace_id: str, result_type: str) -> str:
@@ -308,14 +323,9 @@ def _extract_result_text(result: Any, trace_id: str, result_type: str) -> str:
         return f"{result_type}: No result available"
 
     try:
-        # Try common text fields on object
-        for field in RESULT_TEXT_FIELDS:
-            if hasattr(result, field) and getattr(result, field):
-                return getattr(result, field)
-
-        # Try dictionary access
+        # Handle dictionary results first (most common)
         if isinstance(result, dict):
-            for field in RESULT_DICT_FIELDS:
+            for field in RESULT_FIELDS:
                 if field in result and result[field]:
                     return result[field]
 
@@ -323,9 +333,13 @@ def _extract_result_text(result: Any, trace_id: str, result_type: str) -> str:
             if "error" in result:
                 return result.get("message", "Error occurred")
 
+        # Try common text fields on object
+        for field in RESULT_FIELDS:
+            if hasattr(result, field) and getattr(result, field):
+                return getattr(result, field)
+
         # Fallback to string representation
         return str(result)
-
     except Exception as e:
         logger.error(f"[FormatResponse][{trace_id}] Error extracting {result_type} text: {e}")
         return f"{result_type}: Error processing response"

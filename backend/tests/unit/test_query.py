@@ -5,6 +5,7 @@ This module tests the book search functionality with various criteria.
 """
 
 import pytest
+
 from ai_book_seeker.features.get_book_recommendation.schema import BookRecommendation
 from ai_book_seeker.services.query import search_books_by_criteria
 

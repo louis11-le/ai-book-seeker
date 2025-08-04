@@ -35,7 +35,7 @@ async def extract_parameters_with_llm(query: str, llm) -> dict:
 
         Extract parameters for:
         1. FAQ Tool: faq_query (the question or topic)
-        2. Book Recommendation Tool: age, genre, budget, purpose, interests
+        2. Book Recommendation Tool: age, genre, budget, purpose
         3. Book Details Tool: title, author, isbn
 
         Return a JSON object with the following structure:
@@ -47,7 +47,6 @@ async def extract_parameters_with_llm(query: str, llm) -> dict:
             "genre": "extracted genre",
             "budget": number or null,
             "purpose": "extracted purpose",
-            "interests": ["list", "of", "interests"],
             "title": "extracted book title",
             "author": "extracted author name",
             "isbn": "extracted ISBN"
@@ -135,10 +134,6 @@ def _validate_and_clean_parameters(params: dict) -> dict:
     # Purpose validation
     if "purpose" in params:
         cleaned["purpose"] = _safe_string(params["purpose"])
-
-    # Interests validation
-    if "interests" in params:
-        cleaned["interests"] = _safe_list(params["interests"])
 
     # Title validation
     if "title" in params:

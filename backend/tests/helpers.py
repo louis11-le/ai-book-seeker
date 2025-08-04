@@ -31,12 +31,6 @@ class MockLLM:
                     "participating_agents": ["general_agent"],
                     "is_multi_purpose": False,
                     "is_multi_agent": False,
-                    "query_intents": {
-                        "faq_requests": [],
-                        "book_recommendations": [],
-                        "product_inquiries": [],
-                        "sales_requests": [],
-                    },
                     "reasoning": "Mock routing analysis",
                     "confidence": 0.9,
                 }
@@ -49,7 +43,6 @@ class MockLLM:
                     "genre": "fiction",
                     "budget": 20.0,
                     "purpose": "entertainment",
-                    "interests": ["adventure", "mystery"],
                     "title": None,
                     "author": None,
                     "isbn": None,

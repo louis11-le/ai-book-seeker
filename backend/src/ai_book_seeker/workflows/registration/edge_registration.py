@@ -14,20 +14,18 @@ Key Features:
 Architecture:
 - Standard edges: Direct node-to-node connections
 - Conditional edges: Dynamic routing based on state
-- Error edges: Comprehensive error handling coverage
+- Error handling: Comprehensive error handling via conditional edges only
 - Parallel execution: Multi-agent and multi-tool parallelism
 
 Usage:
     ```python
-    from ai_book_seeker.workflows.registration.edge_registration import register_edges
+
 
     # Define edge groups
     edge_groups = [
         entrypoint_edges(),
         router_to_agent_edges(),
-        tool_to_merge_edges(),
-        error_edges(),
-        merge_to_format_end_edges(),
+        tool_to_format_edges(),
     ]
 
     # Register all edges
@@ -37,10 +35,10 @@ Usage:
 
 from typing import Any, Callable, Dict, List, Tuple
 
-from langgraph.graph import END, START
+from langgraph.graph import START
 
 from ai_book_seeker.core.logging import get_logger
-from ai_book_seeker.workflows.constants import (
+from ai_book_seeker.workflows.constants import (  # SALES_AGENT_NODE,  # Temporarily disabled
     AGENT_COORDINATOR_NODE,
     BOOK_DETAILS_TOOL_NODE,
     BOOK_RECOMMENDATION_TOOL_NODE,
@@ -49,20 +47,13 @@ from ai_book_seeker.workflows.constants import (
     FORMAT_RESPONSE_NODE,
     GENERAL_AGENT_NODE,
     GENERAL_VOICE_AGENT_NODE,
-    MERGE_TOOLS_NODE,
     PARAMETER_EXTRACTION_NODE,
     ROUTER_NODE,
-    SALES_AGENT_NODE,
 )
 from ai_book_seeker.workflows.registration.node_registration import create_agent_tool_map
 from ai_book_seeker.workflows.schemas.state import AgentState
 
 logger = get_logger(__name__)
-
-
-def _create_edge_list(*edges: Tuple[str, str]) -> List[Tuple[str, str]]:
-    """Create a list of edges from tuples with consistent formatting."""
-    return list(edges)
 
 
 def _create_error_edges_from_nodes(*nodes: str) -> List[Tuple[str, str]]:
@@ -117,7 +108,7 @@ def entrypoint_edges() -> List[Tuple[str, str]]:
     Returns:
         List[Tuple[str, str]]: List of (from_node, to_node) edge tuples.
     """
-    return _create_edge_list((START, ROUTER_NODE))
+    return [(START, ROUTER_NODE)]
 
 
 def router_to_agent_edges() -> List[Tuple[str, str]]:
@@ -130,57 +121,24 @@ def router_to_agent_edges() -> List[Tuple[str, str]]:
     Returns:
         List[Tuple[str, str]]: List of (from_node, to_node) edge tuples.
     """
-    return _create_edge_list((ROUTER_NODE, PARAMETER_EXTRACTION_NODE))
+    return [(ROUTER_NODE, PARAMETER_EXTRACTION_NODE)]
 
 
-def tool_to_merge_edges() -> List[Tuple[str, str]]:
+def tool_to_format_edges() -> List[Tuple[str, str]]:
     """
-    Define edges from tools to merge node.
+    Define streaming edges from tools directly to format response.
 
-    Routes from all tool nodes to the merge node for result aggregation
-    and streaming response preparation.
+    Routes from all tool nodes directly to format response for immediate
+    streaming without blocking on merge node.
 
     Returns:
         List[Tuple[str, str]]: List of (from_node, to_node) edge tuples.
     """
-    return _create_edge_list(
-        (FAQ_TOOL_NODE, MERGE_TOOLS_NODE),
-        (BOOK_RECOMMENDATION_TOOL_NODE, MERGE_TOOLS_NODE),
-        (BOOK_DETAILS_TOOL_NODE, MERGE_TOOLS_NODE),
-    )
-
-
-def error_edges() -> List[Tuple[str, str]]:
-    """
-    Define error handling edges.
-
-    Routes from critical nodes to the error node for comprehensive error handling
-    and graceful degradation. Only nodes that can actually fail and need error
-    protection are included. Nodes with internal error handling or conditional
-    edge routing are excluded to prevent conflicts.
-
-    Returns:
-        List[Tuple[str, str]]: List of (from_node, to_node) edge tuples.
-    """
-    # No nodes need static error edges - all use conditional edge routing
-    # or internal error handling
-    return []
-
-
-def merge_to_format_end_edges() -> List[Tuple[str, str]]:
-    """
-    Define edges from merge to format and end.
-
-    Routes from merge node to format response and then to workflow end.
-    Error node should not route to END since it's a finish point.
-
-    Returns:
-        List[Tuple[str, str]]: List of (from_node, to_node) edge tuples.
-    """
-    return _create_edge_list(
-        (MERGE_TOOLS_NODE, FORMAT_RESPONSE_NODE),
-        (FORMAT_RESPONSE_NODE, END),
-    )
+    return [
+        (FAQ_TOOL_NODE, FORMAT_RESPONSE_NODE),
+        (BOOK_RECOMMENDATION_TOOL_NODE, FORMAT_RESPONSE_NODE),
+        (BOOK_DETAILS_TOOL_NODE, FORMAT_RESPONSE_NODE),
+    ]
 
 
 def _register_standard_edges(builder: Any, edge_groups: List[List[Tuple[str, str]]]) -> None:
@@ -192,7 +150,7 @@ def _register_standard_edges(builder: Any, edge_groups: List[List[Tuple[str, str
             logger.debug(f"Registered edge: {from_node} -> {to_node}")
 
 
-def _register_conditional_edges(builder: Any) -> None:
+def _register_conditional_edges(builder: Any, llm: Any) -> None:
     """
     Register conditional edges for parallel execution with enhanced fallback logic.
 
@@ -202,6 +160,7 @@ def _register_conditional_edges(builder: Any) -> None:
 
     Args:
         builder: LangGraph StateGraph builder instance
+        llm: Language model for agent initialization (required for tool mapping)
 
     Raises:
         RuntimeError: If conditional edge registration fails
@@ -218,7 +177,7 @@ def _register_conditional_edges(builder: Any) -> None:
     logger.debug(f"Registered conditional edge: {ROUTER_NODE} -> {PARAMETER_EXTRACTION_NODE} or {ERROR_NODE}")
 
     # Get agent-tool mapping for dynamic edge generation
-    agent_tool_map = create_agent_tool_map()
+    agent_tool_map = create_agent_tool_map(llm=llm)
 
     # Parameter Extraction Conditional Routing
     _create_conditional_edge_with_error_fallback(
@@ -228,7 +187,7 @@ def _register_conditional_edges(builder: Any) -> None:
         {
             "general_agent": GENERAL_AGENT_NODE,
             "general_voice_agent": GENERAL_VOICE_AGENT_NODE,
-            "sales_agent": SALES_AGENT_NODE,
+            # "sales_agent": SALES_AGENT_NODE,  # Temporarily disabled
             "agent_coordinator": AGENT_COORDINATOR_NODE,
             "error": ERROR_NODE,
         },
@@ -243,7 +202,7 @@ def _register_conditional_edges(builder: Any) -> None:
         {
             "general_agent": GENERAL_AGENT_NODE,
             "general_voice_agent": GENERAL_VOICE_AGENT_NODE,
-            "sales_agent": SALES_AGENT_NODE,
+            # "sales_agent": SALES_AGENT_NODE,  # Temporarily disabled
             "error": ERROR_NODE,
         },
         "multi-agent parallel execution",
@@ -291,9 +250,14 @@ def _get_parameter_extraction_routing_targets(state: AgentState) -> str:
         next_node = state.shared_data.routing_analysis.next_node
         logger.debug(f"[Routing][parameter_extraction] next_node: {next_node}")
         logger.debug(
-            f"[Routing][parameter_extraction] constants: {[GENERAL_AGENT_NODE, GENERAL_VOICE_AGENT_NODE, SALES_AGENT_NODE, AGENT_COORDINATOR_NODE]}"
+            f"[Routing][parameter_extraction] constants: "
+            f"{[GENERAL_AGENT_NODE, GENERAL_VOICE_AGENT_NODE, AGENT_COORDINATOR_NODE]}"  # SALES_AGENT_NODE temporarily disabled
         )
-        if next_node in {GENERAL_AGENT_NODE, GENERAL_VOICE_AGENT_NODE, SALES_AGENT_NODE, AGENT_COORDINATOR_NODE}:
+        if next_node in {
+            GENERAL_AGENT_NODE,
+            GENERAL_VOICE_AGENT_NODE,
+            AGENT_COORDINATOR_NODE,
+        }:  # SALES_AGENT_NODE temporarily disabled
             logger.debug(f"Routing to next node: {next_node}")
             return next_node
 
@@ -423,7 +387,7 @@ def _get_agent_tool_routing_targets(state: AgentState, available_tools: List[str
     return ["error"]
 
 
-def register_edges(builder: Any, edge_groups: List[List[Tuple[str, str]]]) -> None:
+def register_edges(builder: Any, edge_groups: List[List[Tuple[str, str]]], llm: Any) -> None:
     """
     Register all edges in the workflow graph using pure conditional edge system.
 
@@ -434,6 +398,7 @@ def register_edges(builder: Any, edge_groups: List[List[Tuple[str, str]]]) -> No
     Args:
         builder: LangGraph StateGraph builder instance
         edge_groups: List of edge group functions returning edge lists
+        llm: Language model for agent initialization (required for tool mapping)
 
     Raises:
         ValueError: If edge registration fails
@@ -446,7 +411,7 @@ def register_edges(builder: Any, edge_groups: List[List[Tuple[str, str]]]) -> No
             router_to_agent_edges(),
             # ... other edge groups
         ]
-        register_edges(builder, edge_groups)
+        register_edges(builder, edge_groups, llm=my_llm)
         ```
     """
     try:
@@ -455,7 +420,7 @@ def register_edges(builder: Any, edge_groups: List[List[Tuple[str, str]]]) -> No
 
         # Register conditional edges for all dynamic routing scenarios
         logger.debug("Registering conditional edges for dynamic routing with error fallback")
-        _register_conditional_edges(builder)
+        _register_conditional_edges(builder, llm=llm)
 
         logger.info("Successfully registered all workflow edges using pure conditional edge system")
 

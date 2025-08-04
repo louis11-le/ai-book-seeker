@@ -1,3 +1,5 @@
+from langchain_core.language_models import BaseLanguageModel
+
 from ai_book_seeker.workflows.constants import BOOK_RECOMMENDATION_TOOL_NODE
 from ai_book_seeker.workflows.prompts.agents import BaseAnalysisPromptTemplate
 from ai_book_seeker.workflows.schemas import AgentRole
@@ -11,7 +13,13 @@ class GeneralVoiceAgent(BaseAgent):
     Enhanced with role-based behavior and LLM-based tool selection.
     """
 
-    def __init__(self, llm=None):
+    def __init__(self, llm: BaseLanguageModel) -> None:
+        """
+        Initialize the GeneralVoiceAgent with required language model.
+
+        Args:
+            llm: Language model for query analysis and tool selection (required)
+        """
         super().__init__(name="general_voice_agent", llm=llm)
 
     def _define_role(self) -> AgentRole:

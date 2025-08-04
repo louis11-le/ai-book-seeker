@@ -93,7 +93,7 @@ class OpenAISettings(BaseSettings):
     model: str = Field(default="gpt-4o", description="OpenAI model for chat completions")
     embedding_model: str = Field(default="text-embedding-3-small", description="OpenAI model for embeddings")
     temperature: float = Field(default=0.7, description="Temperature for chat completions")
-    max_tokens: int = Field(default=1000, description="Maximum tokens for chat completions")
+    max_tokens: int = Field(default=150, description="Maximum tokens for chat completions")
 
     model_config = SettingsConfigDict(env_prefix="OPENAI_")
 
@@ -131,6 +131,19 @@ class ChromaDBSettings(BaseSettings):
 class LoggingSettings(BaseSettings):
     level: str = Field(default="INFO")
     format: str = Field(default="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+
+    # File logging configuration
+    enable_file_logging: bool = Field(default=False, description="Enable file logging")
+    log_directory: str = Field(default="./logs", description="Directory for log files")
+    log_filename: str = Field(default="ai_book_seeker.log", description="Main log filename")
+    error_log_filename: str = Field(default="ai_book_seeker_error.log", description="Error log filename")
+
+    # Log rotation settings
+    max_file_size_mb: int = Field(default=10, description="Maximum log file size in MB")
+    backup_count: int = Field(default=5, description="Number of backup files to keep")
+
+    # Environment-specific settings
+    enable_console_logging: bool = Field(default=True, description="Enable console logging")
 
     model_config = SettingsConfigDict(env_prefix="LOGGING_")
 
